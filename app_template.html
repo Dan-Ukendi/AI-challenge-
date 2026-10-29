@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flood Data Explorer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2430; --muted:#667085; --line:#e3e6eb; --accent:#1f6feb; --warn:#d9480f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12161c; --card:#1b212a; --text:#e6e9ee; --muted:#98a2b3; --line:#2b3340; --accent:#58a6ff; --warn:#ff8a4c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); background:var(--card); display:flex; flex-wrap:wrap; gap:8px 24px; align-items:center; justify-content:space-between; }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:2px 0 0; color:var(--muted); }
+  .tabs { display:flex; gap:6px; }
+  .tabs button { font:inherit; padding:5px 12px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); cursor:pointer; }
+  .tabs button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .tabs button.empty { color:var(--muted); }
+  main { display:grid; grid-template-columns:minmax(300px,420px) 1fr; height:calc(100vh - 66px); }
+  aside { overflow:auto; padding:12px; display:flex; flex-direction:column; gap:12px; }
+  #map { height:100%; min-height:320px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .card h2 { margin:0 0 8px; font-size:14px; }
+  .kpis { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:8px; }
+  .kpi b { display:block; font-size:20px; color:var(--accent); }
+  .kpi span { color:var(--muted); font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .todo { border-style:dashed; color:var(--muted); }
+  .todo b { color:var(--warn); }
+  code { font-size:12px; }
+  .pixel { image-rendering: pixelated; }
+  @media (max-width: 800px) { main { grid-template-columns:1fr; height:auto; } #map { height:60vh; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Flood Data Explorer</h1>
+    <p>July 2021 floods &middot; Belgium, Germany, Netherlands</p>
+  </div>
+  <div class="tabs">
+    <label for="metric" style="align-self:center;color:var(--muted)">Communes (LAU):</label>
+    <select id="metric" style="font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text)">
+      <option value="tier">Response tier</option>
+      <option value="per1000">Residents exposed per 1,000</option>
+      <option value="exposed">Residents exposed</option>
+      <option value="buildings">Buildings near the observed flood</option>
+    </select>
+  </div>
+  <div class="tabs" id="tabs" role="group" aria-label="Country"></div>
+</header>
+<main>
+  <aside id="side"></aside>
+  <div id="map"></div>
+</main>
+<script>
+const D = /*DATA*/null;
+const NAMES = { be: "Belgium", de: "Germany", nl: "Netherlands" };
+const COLORS = { be: "#d9480f", de: "#7048e8", nl: "#2b8a3e" };
+const fmt = (x, d = 0) => Number(x).toLocaleString("en", { maximumFractionDigits: d });
+const side = document.getElementById("side");
+const card = (title, html, cls = "") => side.insertAdjacentHTML("beforeend", `<section class="card ${cls}"><h2>${title}</h2>${html}</section>`);
+const table = (head, rows) => `<table><tr>${head.map((h, i) => `<th class="${i ? "n" : ""}">${h}</th>`).join("")}</tr>` +
+  rows.map(r => `<tr>${r.map((c, i) => `<td class="${i ? "n" : ""}">${c}</td>`).join("")}</tr>`).join("") + "</table>";
+const kpis = (a) => `<div class="kpis">${a.map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${l}</span></div>`).join("")}</div>`;
+
+const CC = Object.keys(D.countries);
+const loaded = CC.filter(cc => D.countries[cc] && D.countries[cc].buildings);
+
+function renderSide(sel) {
+  side.innerHTML = "";
+  const list = sel === "all" ? CC : [sel];
+
+  // Buildings in flood water, per country
+  const withB = list.filter(cc => loaded.includes(cc));
+  if (withB.length) {
+    const S = withB.map(cc => D.countries[cc].buildings_summary);
+    const n = S.reduce((a, s) => a + s.count, 0), inside = S.reduce((a, s) => a + s.inside, 0), buf = D.cfg.building_buffer_m;
+    card(`Buildings in or within ${buf} m of the observed flood`, kpis([[fmt(n), `buildings within ${buf} m`], [fmt(inside), "strictly inside"], [fmt(n - inside), `only in the ${buf} m margin`]]) +
+      table(["Country / region", "Within " + buf + " m", "Inside"], withB.flatMap(cc =>
+        D.countries[cc].buildings_summary.by_adm1.map(r => [`${cc.toUpperCase()} / ${r.adm1}`, fmt(r.count), fmt(r.inside)]))) +
+      `<p style="color:var(--muted);font-size:12px;margin:8px 0 0">GHS-OBAT building points (one point per building, from Overture Maps): not a complete register, so these are floors. The ${buf} m margin counts buildings at the flood edge, whose point may fall just outside the polygon. This is not a damage count.</p>`);
+  }
+  // Flooded share per area of interest, flood polygon size classes
+  const rowsAoi = list.flatMap(cc => (D.countries[cc]?.flood_aoi || []).map(r =>
+    [`${cc.toUpperCase()} ${r.aoi}`, fmt(r.aoi_ha), fmt(r.eau_ha), fmt(r["part_inondee_%"], 2)]));
+  if (rowsAoi.length) card("Flooded area per area of interest", table(["AOI", "AOI ha", "Water ha", "% flooded"], rowsAoi));
+  if (sel !== "all" && D.countries[sel]?.size_classes)
+    card("Flood polygons by size", table(["Class", "Polygons", "% area"],
+      D.countries[sel].size_classes.map(r => [r.classe, fmt(r.n_polygones), fmt(r["%_surface"], 1)])));
+
+  // Missing outputs
+  list.filter(cc => !loaded.includes(cc)).forEach(cc => card(`${NAMES[cc]}: outputs not loaded yet`,
+    `<b>Only the EMS file inventory is available.</b> Run the starter notebook with <code>PAYS = "${cc}"</code> and put
+     <code>bats_eau_${cc}.gpkg</code>, <code>stats_aoi_${cc}.csv</code>, <code>classes_taille_${cc}.csv</code> next to
+     <code>build_app.py</code>, then rebuild.`, "todo"));
+
+  // Response tiers per commune (LAU)
+  const withN = list.filter(cc => D.countries[cc]?.lau);
+  if (withN.length) {
+    const all = withN.flatMap(cc => D.countries[cc].lau.features.map(f => f.properties));
+    const regs = all.filter(r => r.pop_exposed > 0).sort((a, b) => b.pop_exposed - a.pop_exposed);
+    const R = D.rules, sw = c => `<span style="display:inline-block;width:12px;height:12px;background:${c};vertical-align:-2px;border:1px solid #0003"></span>`;
+    const cnt = k => all.filter(r => r.tier === k).length;
+    card("Response by commune (LAU)",
+      `<p style="margin:0 0 6px"><b>Aim:</b> help a regional civil protection authority decide where to concentrate <b>preparedness and alert messages</b>.</p>
+       <p style="margin:0 0 8px"><b>Tier rule (our draft, relative to this sample):</b> a commune is <i>high</i> if its residents exposed per 1,000 inhabitants is at or above ${fmt(R.rate_high, 0)}
+       <b>or</b> its number of residents exposed is at or above ${fmt(R.abs_high, 0)} (top ${100 - R.p_high}% of the ${R.n_flooded} flooded communes); <i>medium</i> at or above ${fmt(R.rate_medium, 0)} per 1,000
+       or ${fmt(R.abs_medium, 0)} residents (top ${100 - R.p_medium}%). High splits into 1B when at least ${R.hazard}% of the observed flood lies inside the EFAS ${D.cfg.efas_return_period}-year zone, otherwise 1A.
+       <b>No data</b> when a low-exposure commune has under ${R.coverage}% of its area inside a mapped area.</p>` +
+      TIER_ORDER.map(k => `<p style="margin:6px 0 2px">${sw(D.tiers[k].color)} <b>${D.tiers[k].label}</b> <span style="color:var(--muted)">(${cnt(k)} communes)</span></p><p style="margin:0 0 4px;color:var(--muted);font-size:13px">${D.tiers[k].message_focus}</p>`).join("") +
+      `<p style="margin:8px 0 4px;font-size:13px">Resident actions are shown in each commune's popup and come only from official pages: ` +
+        Object.values(D.sources).map(s => `<a href="${s.url}" target="_blank" rel="noopener">${s.name}</a>`).join("; ") + `. For Belgium, no official source was read for risk checking, emergency plan or property protection, so none is shown.</p>` +
+      `<details open><summary>Top 30 of ${regs.length} communes with exposed residents</summary>` +
+      table(["Commune", "Exposed", "Per 1,000", "Tier"], regs.slice(0, 30).map(r => [`${r.name} <span style="color:var(--muted)">${r.country}</span>`, fmt(Math.round(r.pop_exposed / 10) * 10), fmt(r.per1000, 1), `${sw(D.tiers[r.tier].color)} ${r.tier}`])) + `</details>` +
+      `<p style="color:var(--muted);font-size:12px;margin:8px 0 0">Thresholds are <b>relative</b> (percentiles of this partial sample), not official limits. Grey = no data, not safe: only the mapped areas (AOIs) were assessed and Belgium has only two.
+       Boundaries, names and official population: Eurostat GISCO LAU 2023 (external source). Exposure: GHS-POP 2020 residents, weighted by flooded share of each ~1 km cell.</p>`);
+  }
+
+  // Inventory of Copernicus EMS files
+  const inv = D.inventory.filter(r => sel === "all" || r.country.toLowerCase() === sel);
+  const byC = {};
+  inv.forEach(r => { (byC[r.country] ??= { files: 0, feats: 0 }); byC[r.country].files += r.files; byC[r.country].feats += r.features; });
+  card("Copernicus EMS files inventoried", table(["Country", "Files", "Features"],
+    Object.entries(byC).map(([c, v]) => [c, fmt(v.files), fmt(v.feats)])) +
+    `<details><summary>By layer type</summary>${table(["Country / layer", "Files", "Features"],
+      inv.map(r => [`${r.country} / ${r.layer}`, fmt(r.files), fmt(r.features)]))}</details>`);
+
+  // Population exposed (GHS-POP E2020, each cell weighted by its flooded share)
+  const withP = list.filter(cc => D.countries[cc]?.pop);
+  if (withP.length) {
+    const P = withP.map(cc => D.countries[cc].pop);
+    const exp = P.reduce((a, p) => a + p.pop_exposed, 0), touched = P.reduce((a, p) => a + p.pop_in_touched_cells, 0);
+    card("Residents in the observed flood", kpis([[fmt(Math.round(exp / 10) * 10), "residents (weighted)"], [fmt(Math.round(touched / 100) * 100), "in touched cells"],
+        [fmt(P.reduce((a, p) => a + p.cells_touched, 0)), "grid cells touched"]]) +
+      table(["Area of interest", "Exposed", "In AOI"], withP.flatMap(cc => D.countries[cc].pop.aoi.map(r =>
+        [`${cc.toUpperCase()} ${r.aoi}`, fmt(Math.round(r.pop_exposed / 10) * 10), fmt(Math.round(r.pop_in_aoi / 100) * 100)]))) +
+      `<p style="color:var(--muted);font-size:12px;margin:8px 0 0">GHS-POP 2020, residents only (no commuters or visitors).
+       <b>Weighted</b> = each ~1 km cell counted by the share of it that is flooded; <b>touched cells</b> = whole cells the flood overlaps (upper bound).
+       AOIs can overlap (e.g. in Germany), so the rows do not add up to the headline, which counts each cell once.
+       Only the mapped AOIs and a satellite snapshot, so this is a lower bound. Population is modelled from built-up data, so it is not independent of the building counts.</p>`);
+  } else card("Population (GHS-POP)", "<b>Not loaded yet.</b> Run <code>prepare_pop.py</code> and rebuild.", "todo");
+}
+
+// Map
+const map = L.map("map").setView([50.8, 6.0], 7);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+map.createPane("lau").style.zIndex = 300;  // commune choropleth below flood, depth and building layers
+const lauLayers = [];
+const TIER_ORDER = ["1A", "1B", "2", "3", "ND"];  // JS would list numeric-looking keys first
+const SEQ = ["#f2f0f7", "#cbc9e2", "#9e9ac8", "#756bb1", "#54278f"];
+const METRICS = {
+  per1000: { label: "Residents exposed per 1,000 inhabitants", bins: [3, 10, 50, 150] },
+  exposed: { label: "Residents exposed", bins: [50, 200, 1000, 5000] },
+  buildings: { label: `Buildings within ${D.cfg.building_buffer_m} m of the observed flood`, bins: [1, 10, 100, 1000] },
+};
+const metricSel = document.getElementById("metric");
+function regionColor(p) {
+  const m = metricSel.value;
+  if (m === "tier" || p.tier === "ND") return D.tiers[p.tier].color;  // grey "no data" in every view
+  const v = p[m === "exposed" ? "pop_exposed" : m], b = METRICS[m].bins;
+  return SEQ[b.filter(x => v >= x).length];
+}
+const regionStyle = p => ({ fillColor: regionColor(p), fillOpacity: 0.75, color: "#555", weight: 0.8 });
+const choro = L.control({ position: "bottomright" });
+choro.onAdd = () => { const d = L.DomUtil.create("div", "card"); d.style.cssText = "padding:8px 10px;font-size:12px;line-height:1.5;max-width:250px"; choro._d = d; return d; };
+choro.addTo(map);
+function updateChoro() {
+  const m = metricSel.value, sw = c => `<span style="display:inline-block;width:12px;height:12px;background:${c};vertical-align:-2px;border:1px solid #0003"></span>`;
+  lauLayers.forEach(l => l.setStyle(f => regionStyle(f.properties)));
+  if (m === "tier") {
+    choro._d.innerHTML = "<b>Commune response tier</b> (draft)<br>" + TIER_ORDER.map(k => `${sw(D.tiers[k].color)} ${k}: ${D.tiers[k].label}`).join("<br>");
+  } else {
+    const b = METRICS[m].bins, lab = [`< ${b[0]}`, ...b.slice(0, -1).map((x, i) => `${x} – ${b[i + 1]}`), `≥ ${b[b.length - 1]}`];
+    choro._d.innerHTML = `<b>Communes: ${METRICS[m].label}</b><br>` + SEQ.map((c, i) => `${sw(c)} ${lab[i]}`).join("<br>") + `<br>${sw(D.tiers.ND.color)} no data (mostly not mapped)`;
+  }
+}
+metricSel.onchange = updateChoro;
+updateChoro();
+
+const layers = {}, water = {}; // water[cc] = { "label": layer } for the layer control
+CC.forEach(cc => {
+  const c = D.countries[cc];
+  if (!c) return;
+  if (c.water) {
+    water[cc] = { [`${cc.toUpperCase()} observed flood extent`]: L.geoJSON(c.water.flood, { style: { color: "#0b5cad", weight: 1, fillColor: "#3b9cff", fillOpacity: 0.45 } }) };
+    Object.entries(c.water.efas).forEach(([rp, e]) => {
+      water[cc][`${cc.toUpperCase()} EFAS modelled depth, ${rp}-year flood`] = L.imageOverlay(e.png, e.bounds, { opacity: 0.8, zIndex: 1 });
+    });
+  }
+  if (c.pop) (water[cc] ??= {})[`${cc.toUpperCase()} residents per cell (GHS-POP 2020)`] =
+    L.imageOverlay(c.pop.image.png, c.pop.image.bounds, { opacity: 0.85, zIndex: 2, className: "pixel" });
+  if (c.lau) {
+    const cu = L.geoJSON(c.lau, {
+      pane: "lau", style: f => regionStyle(f.properties),
+      onEachFeature: (f, l) => {
+        const p = f.properties, t = D.tiers[p.tier], C = p.country;
+        const acts = t.actions.map(id => D.actions[id]?.[C]).filter(Boolean)
+          .map(a => `<li>${a.text} <a href="${D.sources[a.source].url}" target="_blank" rel="noopener">[${D.sources[a.source].name.split(":")[0]}]</a></li>`).join("");
+        l.bindPopup(`<div style="max-width:320px"><b>${p.name}</b> (${C})<br>` +
+          (p.pop_exposed > 0 ? `Residents exposed: ${fmt(Math.round(p.pop_exposed / 10) * 10)} of about ${fmt(Math.round(p.pop_total / 10) * 10)} (${fmt(p.per1000, 1)} per 1,000)<br>` : "No flood observed in the mapped part<br>") +
+          (p.pop_official ? `Official population (Eurostat LAU 2023): ${fmt(p.pop_official)}<br>` : "") +
+          `Buildings within ${D.cfg.building_buffer_m} m of the flood: ${fmt(p.buildings)} &middot; Flooded: ${fmt(p.flood_ha, 1)} ha<br>` +
+          `Flood inside EFAS ${D.cfg.efas_return_period}-year zone: ${p.hazard_share_100 == null ? "n/a" : fmt(p.hazard_share_100) + "%"} &middot; Area mapped: ${fmt(p.coverage_pct)}%<br>` +
+          `<b>${t.label}</b><br><span style="color:#667085">Message focus (draft): ${t.message_focus}</span>` +
+          (acts ? `<br><b>Official guidance for residents:</b><ul style="margin:2px 0 0;padding-left:18px">${acts}</ul>` : `<br><i>No official guidance read for this country and tier.</i>`) + `</div>`);
+      }
+    });
+    lauLayers.push(cu);
+    (water[cc] ??= {})[`${cc.toUpperCase()} communes (LAU)`] = cu;
+  }
+  layers[cc] = L.featureGroup();
+  if (c.aoi) L.geoJSON(c.aoi, { style: { color: "#1f6feb", weight: 2, fillOpacity: 0.05 } })
+    .bindTooltip(l => `${l.feature.properties.locality} (${l.feature.properties.emsr_id})`).addTo(layers[cc]);
+  if (c.buildings) L.geoJSON(c.buildings, {
+    pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 4, color: COLORS[cc], weight: 1, fillOpacity: 0.8 }),
+    onEachFeature: (f, l) => l.bindPopup(`${cc.toUpperCase()} &middot; ${f.properties.adm1}<br>Building ${f.properties.id.slice(0, 8)}<br>${f.properties.in_flood ? "Inside the observed flood" : `Within ${D.cfg.building_buffer_m} m of the observed flood`}`)
+  }).addTo(layers[cc]);
+});
+
+// Legend for the EFAS depth colours (same bins as prepare_water.py)
+const legend = L.control({ position: "bottomleft" });
+legend.onAdd = () => {
+  const d = L.DomUtil.create("div", "card");
+  d.style.cssText = "padding:8px 10px;font-size:12px;line-height:1.5";
+  const bins = [["#c6dbef", "0 – 0.5 m"], ["#9ecae1", "0.5 – 1 m"], ["#6baed6", "1 – 2 m"], ["#3182bd", "2 – 4 m"], ["#08306b", "> 4 m"]];
+  d.innerHTML = "<b>EFAS modelled water depth</b><br>" + bins.map(([c, t]) => `<span style="display:inline-block;width:12px;height:12px;background:${c};vertical-align:-2px"></span> ${t}`).join("<br>") +
+    "<br><span style='color:var(--muted)'>Model, not observed. No colour = no modelled water.</span>";
+  return d;
+};
+legend.addTo(map);
+const popLegend = L.control({ position: "bottomleft" });
+popLegend.onAdd = () => {
+  const d = L.DomUtil.create("div", "card");
+  d.style.cssText = "padding:8px 10px;font-size:12px;line-height:1.5";
+  const bins = [["#fee5d3", "1 – 50"], ["#fdbe85", "50 – 200"], ["#fd8d3c", "200 – 1,000"], ["#d94801", "1,000 – 5,000"], ["#7f2704", "> 5,000"]];
+  d.innerHTML = "<b>Residents per cell (~1 km)</b><br>" + bins.map(([c, t]) => `<span style="display:inline-block;width:12px;height:12px;background:${c};vertical-align:-2px"></span> ${t}`).join("<br>");
+  return d;
+};
+popLegend.addTo(map);
+
+let ctl;
+function show(sel) {
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.sel === sel));
+  Object.values(layers).forEach(g => map.removeLayer(g));
+  if (ctl) map.removeControl(ctl);
+  Object.values(water).forEach(o => Object.values(o).forEach(l => map.removeLayer(l)));
+  const on = (sel === "all" ? Object.keys(layers) : [sel]).filter(cc => layers[cc]);
+  on.forEach(cc => layers[cc].addTo(map));
+  // water layers: observed extent on by default, EFAS depth available in the layer control
+  const overlays = {};
+  on.filter(cc => water[cc]).forEach(cc => Object.entries(water[cc]).forEach(([k, l]) => {
+    overlays[k] = l;
+    if (k.includes("observed") || k.includes("communes")) l.addTo(map);
+  }));
+  ctl = L.control.layers(null, overlays, { collapsed: Object.keys(overlays).length > 8 }).addTo(map);  // long list in All view: collapse
+  on.forEach(cc => layers[cc].bringToFront());  // keep buildings above the water layers
+  const b = on.map(cc => layers[cc].getBounds()).filter(x => x.isValid());
+  if (b.length) map.fitBounds(b.reduce((a, x) => a.extend(x)).pad(0.1));
+  renderSide(sel);
+}
+
+const tabs = document.getElementById("tabs");
+["all", ...CC].forEach(s => {
+  const b = document.createElement("button");
+  b.dataset.sel = s;
+  b.textContent = s === "all" ? "All" : s.toUpperCase();
+  if (s !== "all" && !loaded.includes(s)) { b.className = "empty"; b.title = "No building outputs loaded yet"; }  // legacy hint, all 3 loaded now
+  b.onclick = () => show(s);
+  tabs.appendChild(b);
+});
+show("all");
+</script>
+</body>
+</html>

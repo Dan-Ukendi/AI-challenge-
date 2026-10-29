@@ -1,0 +1,48 @@
+{
+  "_note": "Resident actions come ONLY from official pages read on 2026-10-29 (sources below). 'message_focus' is our analysis-based wording for the regional civil protection authority and is a DRAFT to validate. Where no source was read for a country, there is no action for that country.",
+  "sources": {
+    "bbk": {"name": "BBK (Germany): Vorsorge und Handeln bei Hochwasser", "url": "https://www.bbk.bund.de/DE/Warnung-Vorsorge/Vorsorge/Mit-Naturgefahren-umgehen/Hochwasser/_documents/hochwasser-vorsorge_dossier1.html"},
+    "bealert": {"name": "BE-Alert (Belgium): FAQ", "url": "https://www.be-alert.be/fr/faq"},
+    "rijks": {"name": "Rijksoverheid (Netherlands): Wat moet ik doen bij een dreigende overstroming?", "url": "https://www.rijksoverheid.nl/onderwerpen/water/vraag-en-antwoord/wat-moet-ik-doen-bij-een-dreigende-overstroming"},
+    "nlalert": {"name": "Rijksoverheid (Netherlands): Wat is NL-Alert?", "url": "https://rijksoverheid.nl/onderwerpen/veiligheidsregios-en-crisisbeheersing/vraag-en-antwoord/wat-is-nl-alert"}
+  },
+  "actions": {
+    "alert": {
+      "DE": {"text": "Follow flood warnings via the NINA warning app, radio or the internet, and check current water levels with the state flood centres (hochwasserzentralen.de).", "source": "bbk"},
+      "BE": {"text": "Register on BE-Alert so you are warned even when you are outside the risk zone (up to 5 addresses, e.g. work or a vulnerable relative). On an alert, follow the instructions in the message.", "source": "bealert"},
+      "NL": {"text": "Keep your phone on (not in airplane or Do-not-disturb mode). NL-Alert needs no registration on most phones and tells you what is happening, what to do and where to find updates.", "source": "nlalert"}
+    },
+    "risk": {
+      "DE": {"text": "Find out whether your home is in a flood or heavy-rain risk area: ask your municipality and check the state flood centres and municipal heavy-rain hazard maps.", "source": "bbk"},
+      "NL": {"text": "Prepare for a flood with Denk Vooruit (denkvooruit.nl); the government also points to overstroomik.nl for further information.", "source": "rijks"}
+    },
+    "plan": {
+      "DE": {"text": "Make an emergency plan early: can sick or dependent people be evacuated in time and where to, pets, agreed signals with neighbours if phone networks fail, who does what. Keep your document folder and emergency bag ready; stock food, drinking water, a battery or crank radio and a flashlight.", "source": "bbk"},
+      "NL": {"text": "Prepare an emergency kit: medication, hygiene products, a first-aid kit, and enough non-perishable food and drinking water.", "source": "rijks"}
+    },
+    "protect": {
+      "DE": {"text": "Get sandbags, stop boards and waterproof plywood; move valuable furniture and devices to protected upper rooms; keep hazardous substances out of the water's reach; secure the heating-oil tank against buoyancy; clear cellar rooms that can fill with water.", "source": "bbk"}
+    },
+    "decide": {
+      "BE": {"text": "If told to shelter: go into the nearest building, close doors and windows and listen to the media. If told to evacuate: follow the instructions of the authorities and emergency services.", "source": "bealert"},
+      "NL": {"text": "When a flood threatens, decide whether to stay or leave depending on when it is expected, and follow your Veiligheidsregio and the regional disaster radio. If you stay: go to the highest place and turn off gas, water and electricity. If you leave: take only essentials, plan your route and transport, and tell family and friends where you are going.", "source": "rijks"}
+    }
+  },
+  "tiers": {
+    "1A": {"label": "Priority: high exposure, flood mostly outside modelled hazard zones", "color": "#8c1d40",
+           "message_focus": "Priority for alert-registration and preparedness messages. Say that this flood reached places the hazard maps do not show (less than 50% of the observed flood lies inside the EFAS 100-year zone), so residents should not rely on hazard maps alone.",
+           "actions": ["alert", "risk", "plan", "protect", "decide"]},
+    "1B": {"label": "Priority: high exposure, known hazard zone", "color": "#e4572e",
+           "message_focus": "Priority for preparedness messages in an area already known as a hazard zone: make sure residents are registered for alerts, have a plan and a kit, and know what to do when told to shelter or evacuate.",
+           "actions": ["alert", "risk", "plan", "protect", "decide"]},
+    "2": {"label": "Targeted: medium exposure", "color": "#f2c14e",
+          "message_focus": "Targeted reminders to register for alerts and to prepare a plan and kit.",
+          "actions": ["alert", "risk", "plan"]},
+    "3": {"label": "Low observed exposure (mapped area)", "color": "#cfd8dc",
+          "message_focus": "General alert-registration awareness. Low exposure was observed in the mapped part of this commune.",
+          "actions": ["alert"]},
+    "ND": {"label": "No data: commune mostly outside the mapped areas", "color": "#9aa0a6",
+           "message_focus": "Exposure is unknown, not low: do not read grey as safe. The flood was not mapped here.",
+           "actions": ["alert"]}
+  }
+}

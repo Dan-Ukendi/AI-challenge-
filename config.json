@@ -1,0 +1,9 @@
+{
+  "_note": "Interpretation choices made by the team (form choix_interpretation.html, 2026-10-29). Scripts read this file.",
+  "building_buffer_m": 15,
+  "min_flood_ha": 0,
+  "nodata_coverage_pct": 50,
+  "hazard_known_pct": 50,
+  "efas_return_period": 100,
+  "tier_percentiles": { "high": 90, "medium": 60 }
+}
