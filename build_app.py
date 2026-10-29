@@ -113,6 +113,9 @@ def load_country(cc):
         out["pop"] = json.loads((HERE / f"pop_{cc}.json").read_text())
     if (HERE / f"lau_{cc}.json").exists():  # made by prepare_lau.py (Eurostat GISCO LAU boundaries)
         out["lau"] = json.loads((HERE / f"lau_{cc}.json").read_text(encoding="utf-8"))
+    if (HERE / f"osm_poi_{cc}.json").exists() and (HERE / f"osm_summary_{cc}.json").exists():  # made by prepare_osm.py (OpenStreetMap, ODbL)
+        out["osm"] = {"poi": json.loads((HERE / f"osm_poi_{cc}.json").read_text(encoding="utf-8")),
+                      "summary": json.loads((HERE / f"osm_summary_{cc}.json").read_text(encoding="utf-8"))}
     # my_results.gpkg is the Belgian area of interest (EMSR518, Liege) from the starter notebook
     if cc == "be" and (HERE / "my_results.gpkg").exists():
         out["aoi"] = read_gpkg("my_results.gpkg")
@@ -154,8 +157,13 @@ def assign_tiers(countries):
 def main():
     countries = {cc: load_country(cc) for cc in COUNTRIES}
     th = assign_tiers(countries)
+    # per-commune site summaries for the plain-language tabs (made by prepare_regions.py; Belgium only for now)
+    regions = {cc: json.loads((HERE / f"regions_{cc}.json").read_text(encoding="utf-8")) for cc in COUNTRIES if (HERE / f"regions_{cc}.json").exists()}
+    sites = {cc: json.loads((HERE / f"sites_{cc}.json").read_text(encoding="utf-8")) for cc in COUNTRIES if (HERE / f"sites_{cc}.json").exists()}
+    # modelled river-flood exposure of every commune (made by prepare_hazard.py)
+    hazard = {cc: json.loads((HERE / f"hazard_{cc}.json").read_text(encoding="utf-8")) for cc in COUNTRIES if (HERE / f"hazard_{cc}.json").exists()}
     data = {"inventory": inventory(), "tiers": ACTIONS["tiers"], "actions": ACTIONS["actions"], "sources": ACTIONS["sources"],
-            "rules": th, "cfg": CFG, "countries": countries}
+            "rules": th, "cfg": CFG, "countries": countries, "regions": regions, "sites": sites, "hazard": hazard}
     OUT.mkdir(exist_ok=True)
     html = (HERE / "app_template.html").read_text(encoding="utf-8")
     html = html.replace("/*DATA*/null", json.dumps(data, ensure_ascii=False))

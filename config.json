@@ -1,6 +1,13 @@
 {
   "_note": "Interpretation choices made by the team (form choix_interpretation.html, 2026-10-29). Scripts read this file.",
   "building_buffer_m": 15,
+  "poi_near_m": 100,
+  "hazard_higher_pct": 10,
+  "hazard_lower_pct": 2,
+  "candidate_min_pop": 3000,
+  "shelter_tags": ["leisure=sports_hall", "leisure=sports_centre", "amenity=community_centre", "amenity=townhall",
+                   "emergency=assembly_point", "amenity=social_centre", "amenity=events_venue", "amenity=conference_centre", "amenity=exhibition_centre"],
+  "osm_snapshot": "210101",
   "min_flood_ha": 0,
   "nodata_coverage_pct": 50,
   "hazard_known_pct": 50,
