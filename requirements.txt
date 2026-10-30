@@ -1,12 +1,1 @@
-# Third-party packages of the data pipeline (pipeline/). Python 3.13.
-# src/build_app.py, live/live_proxy.py and live/live_smoketest.py use the standard library only.
-gcsfs
-geopandas
-numpy
-osmium        # pyosmium: reads the OpenStreetMap extracts
-pandas
-pyogrio
-rasterio
-requests
-scipy
-shapely
+streamlit

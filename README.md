@@ -28,7 +28,7 @@ European AI Challenge 2026 (FARI / JRC). A single-page web tool built on the dat
 - **Theme:** one dark or light theme for the whole app, chosen with the sun/moon button in the top bar and remembered by the browser.
 - **AI assistant:** the same local proxy serves it. The key is read from an environment variable and never reaches the page (`live/ASSISTANT.md`).
 - **Streamlit:** the branch `streamlit-deploy` adds `streamlit_app.py`, `.streamlit/config.toml` and a `static/` copy of `app/`; main file path `streamlit_app.py`. The helper-based features (three live sources, NRW alerts, assistant) are not available there.
-- **Re-run the data pipeline:** `pip install -r requirements.txt`, then the scripts below. They read the public challenge bucket `gs://datasets_challenge/working_data` anonymously and only read the windows they need.
+- **Re-run the data pipeline:** `pip install -r pipeline/requirements.txt`, then the scripts below. They read the public challenge bucket `gs://datasets_challenge/working_data` anonymously and only read the windows they need.
 
 ## Pipeline (run order)
 

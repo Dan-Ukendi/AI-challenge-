@@ -1,0 +1,5 @@
+[server]
+enableStaticServing = true      # serves the folder static/ at /app/static/ (the built app and its road graphs)
+
+[browser]
+gatherUsageStats = false
