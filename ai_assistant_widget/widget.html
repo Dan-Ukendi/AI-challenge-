@@ -1,0 +1,21 @@
+<!-- Policy assistant chat widget -- paste right before </body> -->
+<button id="askBtn" onclick="askToggle(true)">💬 Ask the policy assistant</button>
+<div id="askPanel">
+  <div id="askHead">
+    <strong>Flood policy assistant</strong>
+    <button onclick="askToggle(false)">✕</button>
+  </div>
+  <div id="askChips">
+    <button data-q="If July 2021 repeats, where should we move people in Maastricht and why?">🧭 Plan an evacuation</button>
+    <button data-q="Chart the top 5 communes by residents exposed in tier 1A or 1B.">📊 Chart top-priority areas</button>
+    <button data-q="Are flood-related costs increasing or decreasing, and where should we invest?">💶 Cost &amp; investment outlook</button>
+    <button data-q="Generate a PDF report on the top priority areas with cost context.">📄 Generate PDF report</button>
+  </div>
+  <div id="askMsgs">
+    <div id="askWelcome">Ask me anything about flood exposure, evacuation, priority areas, or costs. I only answer from real data (this dataset, or the live web for anything not covered here, always cited) and can build charts, dashboards, or a downloadable PDF report on request.</div>
+  </div>
+  <form id="askForm" onsubmit="return askSend(event)">
+    <textarea id="askInput" rows="2" placeholder="Ask a question..."></textarea>
+    <button id="askSendBtn" type="submit">Send</button>
+  </form>
+</div>
