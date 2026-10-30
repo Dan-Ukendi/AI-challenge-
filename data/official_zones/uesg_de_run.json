@@ -1,0 +1,58 @@
+{
+ "uesg:uesg_gesetzlich": {
+  "objects": 183,
+  "pages": 1,
+  "bbox_filter": true,
+  "numberMatched": 183
+ },
+ "uesg:risikogebiete_ausserhalb_uesg": {
+  "objects": 117,
+  "pages": 1,
+  "bbox_filter": false,
+  "numberMatched": 117
+ },
+ "uesg:RISIKOGEBIETE_AUSSERHALB_UESG_WEITERE": {
+  "objects": 78,
+  "pages": 1,
+  "bbox_filter": true,
+  "numberMatched": 78
+ },
+ "nrw_zip": {
+  "bytes": 98211219,
+  "last_modified_header": "Thu, 29 Oct 2026 06:53:08 GMT",
+  "sha256": "0ad7892f9257f347ec447f30f3e03e8018024ca91844fa15666bbb4c1c819d8f"
+ },
+ "festgesetzte_Ueberschwemmungsgebiete": {
+  "crs": "EPSG:25832",
+  "columns": [
+   "GEWKZ",
+   "NAME",
+   "UESG_PDF",
+   "DATUM",
+   "BR"
+  ],
+  "objects_total": 757,
+  "objects_in_study_area": 305
+ },
+ "vorlaeufig_gesicherte_Ueberschwemmungsgebiete": {
+  "crs": "EPSG:25832",
+  "columns": [
+   "GEWKZ",
+   "NAME",
+   "BR"
+  ],
+  "objects_total": 126,
+  "objects_in_study_area": 28
+ },
+ "run": {
+  "date": "2026-10-29T21:46:47+01:00",
+  "bbox_wgs84": [
+   6.02745,
+   49.54262,
+   7.73199,
+   51.48178
+  ],
+  "objects": 658,
+  "repaired": 28
+ }
+}

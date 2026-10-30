@@ -1,17 +1,20 @@
-"""Build flood_data_report.html: a self-contained, printable report (no external files or scripts).
+"""Build docs/flood_data_report.html: a self-contained, printable report (no external files or scripts).
 
-Run: py -3.13 build_report.py     (after fetch_country / fetch_rasters / prepare_water / prepare_pop)
+Run: py -3.13 pipeline/build_report.py     (after fetch_country / fetch_rasters / prepare_water / prepare_pop)
 """
 import csv
 import datetime
 import html
 import json
 import math
+import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
-import build_app as B
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+import build_app as B  # src/build_app.py: same loaders and tier rule as the app
 
-HERE = B.HERE
+ROOT, DATA = B.ROOT, B.DATA
 NAMES = {"be": "Belgium", "de": "Germany", "nl": "Netherlands"}
 ACT = {"be": "EMSR518 (activated 14 July 2021)", "de": "EMSR517 (activated 13 July 2021)", "nl": "EMSR520 (activated 15 July 2021)"}
 EPOCH = {1: "before 1980", 2: "1980–1990", 3: "1990–2000", 4: "2000–2010", 5: "2010–2020", 0: "outside built-up domain"}
@@ -22,7 +25,7 @@ n1 = lambda x: f"{x:,.1f}"
 
 
 def rd(name):
-    p = HERE / name
+    p = DATA / name
     return list(csv.DictReader(open(p, encoding="utf-8"))) if p.exists() else None
 
 
@@ -74,7 +77,7 @@ def build():
     data = {cc: country_data(cc) for cc in B.COUNTRIES}
     th = B.assign_tiers(data)
     BUF, CFG_RP = B.CFG["building_buffer_m"], B.CFG["efas_return_period"]
-    efas = {cc: rd(f"efas_check_{cc}.csv") for cc in B.COUNTRIES}
+    efas = {cc: rd(f"flood/efas_check_{cc}.csv") for cc in B.COUNTRIES}
     ok = [cc for cc in B.COUNTRIES if data[cc]]
     today = datetime.date.today().isoformat()
 
@@ -247,7 +250,8 @@ code{font-size:13px}@media print{main{max-width:none;padding:0}h2{break-after:av
 <p class="note">All figures cover the mapped areas of interest on the day of the satellite pass: they are lower bounds, not national totals.</p>
 {"".join(sections)}
 </main></body></html>"""
-    out = HERE / "flood_data_report.html"
+    out = ROOT / "docs" / "flood_data_report.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(page, encoding="utf-8")
     print(f"wrote {out} ({len(page) / 1e6:.2f} MB)")
 

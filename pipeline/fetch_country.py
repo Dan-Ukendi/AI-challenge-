@@ -2,8 +2,8 @@
 
 Reads the public challenge bucket anonymously (nothing downloaded whole).
 Needs: gcsfs pyogrio rasterio geopandas shapely
-Run:   python fetch_country.py nl      (or de / be)
-Writes stats_aoi_<cc>.csv, classes_taille_<cc>.csv, bats_eau_<cc>.gpkg next to this file.
+Run:   python pipeline/fetch_country.py nl      (or de / be)
+Writes data/flood/stats_aoi_<cc>.csv, classes_taille_<cc>.csv, bats_eau_<cc>.gpkg.
 """
 import csv
 import os
@@ -19,17 +19,20 @@ import numpy as np
 import pandas as pd
 import shapely
 
-HERE = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[1]  # repository root
+DATA = ROOT / "data"
+OUT = DATA / "flood"
+OUT.mkdir(parents=True, exist_ok=True)
 BUCKET, FOLDER = "datasets_challenge", "working_data"
 GDAL_PREFIX = "/vsigs/"
 ISO3 = {"be": "BEL", "de": "DEU", "nl": "NLD"}
 TUILE = 0.02  # tile size in degrees (~1.5 x 2 km): OBAT is in EPSG:4326
 
 import json
-BUFFER_M = json.load(open(Path(__file__).parent / "config.json"))["building_buffer_m"]  # choice C3
+BUFFER_M = json.load(open(ROOT / "config.json"))["building_buffer_m"]  # choice C3
 PAYS = sys.argv[1].lower()
 fs = gcsfs.GCSFileSystem(token="anon")
-inv = pd.DataFrame(list(csv.DictReader(open(HERE / "inventaire_ems.csv", encoding="utf-8"))))
+inv = pd.DataFrame(list(csv.DictReader(open(DATA / "inventory" / "inventaire_ems.csv", encoding="utf-8"))))
 
 
 def load(motif):
@@ -51,14 +54,14 @@ inter = gpd.overlay(gpd.GeoDataFrame(geometry=[f.union_all()], crs=3035), a[["ao
 par_aoi = pd.DataFrame({"aoi_ha": a.set_index("aoi").area / 1e4,
                         "eau_ha": inter.dissolve("aoi").area / 1e4}).fillna(0)
 par_aoi["part_inondee_%"] = 100 * par_aoi.eau_ha / par_aoi.aoi_ha
-par_aoi.to_csv(HERE / f"stats_aoi_{PAYS}.csv")
+par_aoi.to_csv(OUT / f"stats_aoi_{PAYS}.csv")
 
 classes = pd.cut(f.surface_ha, bins=[0, 0.1, 1, 10, 100, float("inf")],
                  labels=["< 0.1 ha", "0.1–1 ha", "1–10 ha", "10–100 ha", "> 100 ha"])
 taille = f.groupby(classes, observed=False).surface_ha.agg(n_polygones="count", surface_ha="sum")
 taille["%_polygones"] = 100 * taille.n_polygones / taille.n_polygones.sum()
 taille["%_surface"] = 100 * taille.surface_ha / taille.surface_ha.sum()
-taille.to_csv(HERE / f"classes_taille_{PAYS}.csv")
+taille.to_csv(OUT / f"classes_taille_{PAYS}.csv")
 print(f"stats saved ({time.time() - t0:.0f} s)", flush=True)
 
 # Buildings (GHS-OBAT) inside observed water, read tile by tile
@@ -88,5 +91,5 @@ with ThreadPoolExecutor(max_workers=8) as ex:
 bats = pd.concat([m for m in morceaux if len(m)], ignore_index=True)
 bats = bats[~bats.geometry.to_wkb().duplicated()].reset_index(drop=True)
 bats["in_flood"] = bats.within(flood_union)  # False = only inside the buffer around the flood
-bats.to_file(HERE / f"bats_eau_{PAYS}.gpkg")
+bats.to_file(OUT / f"bats_eau_{PAYS}.gpkg")
 print(f"{PAYS}: {len(bats)} buildings within {BUFFER_M} m of observed water, {int(bats.in_flood.sum())} strictly inside ({time.time() - t0:.0f} s)")

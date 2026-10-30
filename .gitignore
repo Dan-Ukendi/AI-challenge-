@@ -1,0 +1,23 @@
+# large external downloads and caches (re-created by the pipeline or downloaded by hand)
+ext/
+data/raw*/
+data/raw*
+*.nodecache
+*.roadcache
+*.pkl
+
+# over the GitHub 100 MB file limit: re-create with pipeline/prepare_uesg.py
+data/official_zones/uesg_de.gpkg
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# local tool settings and scratch files
+.claude/
+CLAUDE.md
+scratch*/
+*.tmp
+.ipynb_checkpoints/

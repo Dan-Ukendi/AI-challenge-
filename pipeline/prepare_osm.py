@@ -4,8 +4,8 @@ Source: a Geofabrik country extract (no live server, nothing sent anywhere). By 
 state of OSM about six months BEFORE the July 2021 flood; set "osm_snapshot" to "latest" in config.json for the current state.
 The extract is downloaded once into ext/osm_pbf/ (md5-checked) and read locally with pyosmium.
 Needs: gcsfs pyogrio geopandas shapely pyosmium
-Run:   python prepare_osm.py be         (then nl, de; the extracts are 0.4 / 1.1 / 3.5 GB for the 2021 snapshot)
-Writes osm_poi_<cc>.json (points) and osm_summary_<cc>.json (counts) next to this file; read by build_app.py.
+Run:   python pipeline/prepare_osm.py be         (then nl, de; the extracts are 0.4 / 1.1 / 3.5 GB for the 2021 snapshot)
+Writes data/osm/osm_poi_<cc>.json (points) and data/osm/osm_summary_<cc>.json (counts); read by src/build_app.py.
 Data: (c) OpenStreetMap contributors, ODbL. Incomplete by nature: see the limits printed at the end.
 """
 import csv
@@ -25,13 +25,18 @@ import pandas as pd
 import shapely
 import shapely.wkb
 
-HERE = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[1]  # repository root
+DATA = ROOT / "data"
 GDAL_PREFIX = "/vsigs/"
-CFG = json.loads((HERE / "config.json").read_text(encoding="utf-8"))
+CFG = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
 NEAR_M = CFG.get("poi_near_m", 100)
 SNAPSHOT = CFG.get("osm_snapshot", "210101")  # "latest" or YYMMDD (Geofabrik keeps 1 January snapshots)
-GEOFABRIK = {"be": "belgium", "de": "germany", "nl": "netherlands"}
-PBF_DIR = HERE / "ext" / "osm_pbf"  # untrusted download: its own folder
+# Geofabrik extracts per country. Only the regions that contain the mapped areas are used (far smaller than the whole country):
+# DE: the EMS areas of interest lie in North Rhine-Westphalia, Rhineland-Palatinate and (one commune) Saarland; NL: Limburg.
+EXTRACTS = {"be": ["belgium"], "nl": ["netherlands/limburg"],
+            "de": ["germany/nordrhein-westfalen", "germany/rheinland-pfalz", "germany/saarland"]}
+# untrusted download: its own folder. OSM_PBF_DIR lets you keep the big files outside a synced folder (e.g. OneDrive)
+PBF_DIR = Path(os.environ.get("OSM_PBF_DIR") or ROOT / "ext" / "osm_pbf")
 
 # ---- EDITABLE: categories and OSM tags. A rule is (key, [values]) or (key, [values], {extra_key: required_value}).
 CATEGORIES = {
@@ -97,10 +102,10 @@ def snapshot_date():
     return f"20{SNAPSHOT[:2]}-{SNAPSHOT[2:4]}-{SNAPSHOT[4:6]}"
 
 
-def get_pbf(cc):
-    """Path of the Geofabrik extract, downloaded and md5-checked on first use."""
-    name = f"{GEOFABRIK[cc]}-{SNAPSHOT}.osm.pbf"
-    path, url = PBF_DIR / name, f"https://download.geofabrik.de/europe/{name}"
+def get_pbf(extract):
+    """Path of one Geofabrik extract (e.g. "germany/saarland"), downloaded on first use (md5 checked when Geofabrik publishes one)."""
+    name = f"{extract.split('/')[-1]}-{SNAPSHOT}.osm.pbf"
+    path, url = PBF_DIR / name, f"https://download.geofabrik.de/europe/{extract}-{SNAPSHOT}.osm.pbf"
     if path.exists():
         return path
     PBF_DIR.mkdir(parents=True, exist_ok=True)
@@ -132,9 +137,10 @@ def get_pbf(cc):
 def read_pbf(path, aoi_bounds):
     """Matching OSM objects as rows with their geometry: nodes as points, open ways as lines, closed ways and multipolygons as areas."""
     keys, wkb = wanted_keys(), osmium.geom.WKBFactory()
-    big = path.stat().st_size > 1.5e9  # a large extract needs a disk-based node location cache
+    big = path.stat().st_size > 5e8  # a large extract needs a disk-based node location cache (RAM is limited)
+    cache = PBF_DIR / (path.stem + ".nodecache")
     fp = osmium.FileProcessor(str(path))
-    fp = fp.with_locations(f"dense_file_array,{PBF_DIR / (path.stem + '.nodecache')}") if big else fp.with_locations()
+    fp = fp.with_locations(f"sparse_file_array,{cache}") if big else fp.with_locations()
     fp = fp.with_areas().with_filter(osmium.filter.TagFilter(*tag_pairs()))
     x0, y0, x1, y1 = aoi_bounds
     rows, seen = [], 0
@@ -160,14 +166,21 @@ def read_pbf(path, aoi_bounds):
             continue
         rows.append({"element": el, "id": oid, "geometry": g, **{k: o.tags.get(k) for k in keys}})
     print(f"      read {seen:,} matching objects in the file, {len(rows):,} inside the AOI bounding box", flush=True)
+    if big and cache.exists():
+        del fp  # release the cache file, then delete it (it is several GB)
+        try:
+            cache.unlink()
+        except OSError:
+            print(f"      (could not delete {cache.name}: delete it by hand)", flush=True)
     return gpd.GeoDataFrame(rows, geometry="geometry", crs=4326)
 
 
 def main(cc):
-    out_poi, out_sum = HERE / f"osm_poi_{cc}.json", HERE / f"osm_summary_{cc}.json"
+    out_poi, out_sum = DATA / "osm" / f"osm_poi_{cc}.json", DATA / "osm" / f"osm_summary_{cc}.json"
+    out_poi.parent.mkdir(parents=True, exist_ok=True)
     import gcsfs
     fs = gcsfs.GCSFileSystem(token="anon")  # public challenge bucket, read-only
-    inv = pd.DataFrame(list(csv.DictReader(open(HERE / "inventaire_ems.csv", encoding="utf-8"))))
+    inv = pd.DataFrame(list(csv.DictReader(open(DATA / "inventory" / "inventaire_ems.csv", encoding="utf-8"))))
 
     def load(motif):
         paths = inv.loc[(inv.pays == cc) & inv.fichier.str.contains(motif, case=False), "path"]
@@ -178,11 +191,18 @@ def main(cc):
     water_m = gpd.GeoSeries([load("observed").union_all()], crs=4326).to_crs(3035).iloc[0]
     aoi_km2 = gpd.GeoSeries([aoi_union], crs=4326).to_crs(3035).area.iloc[0] / 1e6
 
-    print(f"[2/5] OSM extract: Geofabrik {GEOFABRIK[cc]}, snapshot {SNAPSHOT} ({snapshot_date()}) ...", flush=True)
-    pbf = get_pbf(cc)
-    t0 = time.time()
-    raw = read_pbf(pbf, aoi_union.bounds)
-    print(f"      read in {time.time() - t0:.0f} s; geometry sources: {raw.element.value_counts().to_dict()} "
+    print(f"[2/5] OSM extracts: Geofabrik {EXTRACTS[cc]}, snapshot {SNAPSHOT} ({snapshot_date()}) ...", flush=True)
+    parts = []
+    for extract in EXTRACTS[cc]:
+        pbf = get_pbf(extract)
+        t0 = time.time()
+        print(f"      reading {pbf.name} ...", flush=True)
+        parts.append(read_pbf(pbf, aoi_union.bounds))
+        print(f"      read in {time.time() - t0:.0f} s", flush=True)
+    raw = pd.concat(parts, ignore_index=True) if len(parts) > 1 else parts[0]
+    raw = gpd.GeoDataFrame(raw, geometry="geometry", crs=4326)
+    raw = raw[~raw.duplicated(["element", "id"])]  # an object on the border of two extracts appears in both
+    print(f"      {len(raw):,} objects; geometry sources: {raw.element.value_counts().to_dict()} "
           f"(areas = building outlines and polygons, nodes = points)", flush=True)
 
     print("[3/5] classifying and taking representative points ...", flush=True)
@@ -198,6 +218,7 @@ def main(cc):
 
     print(f"[4/5] position relative to the observed flood (near = {NEAR_M} m) ...", flush=True)
     near_zone = water_m.buffer(NEAR_M)
+    shapely.prepare(water_m); shapely.prepare(near_zone)  # much faster point-in-polygon tests on the big German outlines
     raw["position"] = ["in water" if p.within(water_m) else (POSITIONS[1] if p.within(near_zone) else "outside") for p in pts_m]
     feats = [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [round(g.x, 5), round(g.y, 5)]},
               "properties": {"name": n if isinstance(n, str) and n else None, "categorie": c, "type": t, "tag": tg,

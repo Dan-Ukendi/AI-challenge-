@@ -3,8 +3,8 @@
 Each GHS-POP cell is weighted by the share of its area covered by the observed flood (Annex 2 advice).
 Reads only the flooded window of the raster from the public bucket.
 Needs: gcsfs pyogrio rasterio geopandas shapely
-Run:   python prepare_pop.py be de nl
-Writes pop_<cc>.json next to this file (read by build_app.py).
+Run:   python pipeline/prepare_pop.py be de nl
+Writes data/population/pop_<cc>.json (read by src/build_app.py).
 """
 import base64
 import csv
@@ -24,8 +24,11 @@ import rasterio
 from rasterio.features import rasterize
 from rasterio.windows import Window, from_bounds, transform as win_transform, bounds as win_bounds
 
-HERE = Path(__file__).parent
-ROOT = "datasets_challenge/working_data"
+ROOT = Path(__file__).resolve().parents[1]  # repository root
+DATA = ROOT / "data"
+GCS_ROOT = "datasets_challenge/working_data"
+OUT = DATA / "population"
+OUT.mkdir(parents=True, exist_ok=True)
 GDAL_PREFIX = "/vsigs/"
 K = 10      # sub-cells per cell side, for the flooded-share weighting
 PAD = 0.1   # degrees of margin around the flood extent
@@ -34,8 +37,8 @@ BINS = [(1, None), (50, (254, 237, 222, 170)), (200, (253, 190, 133, 190)), (100
         (5000, (217, 72, 1, 220)), (float("inf"), (127, 39, 4, 235))]
 
 fs = gcsfs.GCSFileSystem(token="anon")
-inv = pd.DataFrame(list(csv.DictReader(open(HERE / "inventaire_ems.csv", encoding="utf-8"))))
-pop_path = next(p for p in fs.find(f"{ROOT}/ghs_pop") if "E2020" in p and p.endswith(".tif") and "ovr" not in p)
+inv = pd.DataFrame(list(csv.DictReader(open(DATA / "inventory" / "inventaire_ems.csv", encoding="utf-8"))))
+pop_path = next(p for p in fs.find(f"{GCS_ROOT}/ghs_pop") if "E2020" in p and p.endswith(".tif") and "ovr" not in p)
 
 
 def png_rgba(rgba):
@@ -92,6 +95,6 @@ for cc in sys.argv[1:]:
            "cells_touched": int((total > 0).sum()),
            "aoi": sorted(rows, key=lambda x: -x["pop_exposed"]),
            "image": {"bounds": [[b[1], b[0]], [b[3], b[2]]], "png": "data:image/png;base64," + base64.b64encode(png).decode()}}
-    (HERE / f"pop_{cc}.json").write_text(json.dumps(out, separators=(",", ":")))
+    (OUT / f"pop_{cc}.json").write_text(json.dumps(out, separators=(",", ":")))
     print(f"{cc}: exposed {out['pop_exposed']:,.0f} | touched cells {out['pop_in_touched_cells']:,.0f} | "
           f"{len(rows)} AOIs | image {pop.shape} px {len(png) / 1e3:,.0f} KB", flush=True)

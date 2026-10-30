@@ -2,9 +2,9 @@
 
 External source: Eurostat GISCO LAU 2023 boundaries (ext/lau_be_de_nl.gpkg), not challenge data.
 Needs: gcsfs pyogrio rasterio geopandas shapely
-Run:   python prepare_lau.py be de nl
-Writes lau_<cc>.json next to this file (read by build_app.py). Parameters: config.json.
-Needs bats_eau_<cc>.gpkg from fetch_country.py (run that first).
+Run:   python pipeline/prepare_lau.py be de nl
+Writes data/communes/lau_<cc>.json (read by src/build_app.py). Parameters: config.json.
+Needs data/flood/bats_eau_<cc>.gpkg from fetch_country.py (run that first).
 """
 import csv
 import os
@@ -20,20 +20,23 @@ import rasterio
 from rasterio.features import rasterize
 from rasterio.windows import Window, from_bounds, transform as win_transform
 
-HERE = Path(__file__).parent
-ROOT = "datasets_challenge/working_data"
+ROOT = Path(__file__).resolve().parents[1]  # repository root
+DATA = ROOT / "data"
+GCS_ROOT = "datasets_challenge/working_data"
+OUT = DATA / "communes"
+OUT.mkdir(parents=True, exist_ok=True)
 GDAL_PREFIX = "/vsigs/"
 import json
-CFG = json.load(open(HERE / "config.json"))
+CFG = json.load(open(ROOT / "config.json"))
 K = 8                                    # sub-cells per population cell side
 MIN_FLOOD_HA = CFG["min_flood_ha"]       # choice B2: 0 = keep every commune the flood touches
 RP = CFG["efas_return_period"]           # choice E1
 
 fs = gcsfs.GCSFileSystem(token="anon")
-inv = pd.DataFrame(list(csv.DictReader(open(HERE / "inventaire_ems.csv", encoding="utf-8"))))
-lau_all = gpd.read_file(HERE / "ext" / "lau_be_de_nl.gpkg")
-pop_path = next(p for p in fs.find(f"{ROOT}/ghs_pop") if "E2020" in p and p.endswith(".tif") and "ovr" not in p)
-efas_path = next(p for p in fs.find(f"{ROOT}/cems-efas") if p.endswith(f"RP{RP}_filled_depth.tif"))
+inv = pd.DataFrame(list(csv.DictReader(open(DATA / "inventory" / "inventaire_ems.csv", encoding="utf-8"))))
+lau_all = gpd.read_file(ROOT / "ext" / "lau_be_de_nl.gpkg")
+pop_path = next(p for p in fs.find(f"{GCS_ROOT}/ghs_pop") if "E2020" in p and p.endswith(".tif") and "ovr" not in p)
+efas_path = next(p for p in fs.find(f"{GCS_ROOT}/cems-efas") if p.endswith(f"RP{RP}_filled_depth.tif"))
 
 
 def window(src, bounds):
@@ -64,7 +67,7 @@ for cc in sys.argv[1:]:
     w, s, e, n = aoi_union.bounds
     lau = lau_all[lau_all.CNTR_CODE == cc.upper()].cx[w:e, s:n]
     lau = lau[lau.intersects(aoi_union) | lau.intersects(union)].copy()
-    bats = gpd.read_file(HERE / f"bats_eau_{cc}.gpkg")
+    bats = gpd.read_file(DATA / "flood" / f"bats_eau_{cc}.gpkg")
     nb = gpd.sjoin(bats, lau[["GISCO_ID", "geometry"]], predicate="within").groupby("GISCO_ID").size()
 
     lau_m = lau.to_crs(3035)
@@ -104,5 +107,5 @@ for cc in sys.argv[1:]:
         })
     out = lau[["GISCO_ID", "geometry"]].rename(columns={"GISCO_ID": "lau_id"}).merge(pd.DataFrame(rows), on="lau_id")
     out["geometry"] = out.geometry.simplify(0.0005)
-    out.to_file(HERE / f"lau_{cc}.json", driver="GeoJSON")
+    out.to_file(OUT / f"lau_{cc}.json", driver="GeoJSON")
     print(f"{cc}: {len(out)} communes in the mapped areas, {int((out.flood_ha > 0).sum())} touched by the observed flood -> lau_{cc}.json", flush=True)

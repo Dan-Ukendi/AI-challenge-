@@ -5,12 +5,32 @@
   "hazard_higher_pct": 10,
   "hazard_lower_pct": 2,
   "candidate_min_pop": 3000,
-  "shelter_tags": ["leisure=sports_hall", "leisure=sports_centre", "amenity=community_centre", "amenity=townhall",
-                   "emergency=assembly_point", "amenity=social_centre", "amenity=events_venue", "amenity=conference_centre", "amenity=exhibition_centre"],
+  "route_cover_km": 3,
+  "route_snap_m": 400,
+  "route_pen_observed": 1000,
+  "route_pen_rp100": 40,
+  "route_pen_rp500": 6,
+  "shelter_tags": [
+    "leisure=sports_hall",
+    "leisure=sports_centre",
+    "amenity=community_centre",
+    "amenity=townhall",
+    "emergency=assembly_point",
+    "amenity=social_centre",
+    "amenity=events_venue",
+    "amenity=conference_centre",
+    "amenity=exhibition_centre"
+  ],
   "osm_snapshot": "210101",
   "min_flood_ha": 0,
   "nodata_coverage_pct": 50,
   "hazard_known_pct": 50,
   "efas_return_period": 100,
-  "tier_percentiles": { "high": 90, "medium": 60 }
+  "tier_percentiles": {
+    "high": 90,
+    "medium": 60
+  },
+  "island_min_pop": 100,
+  "island_high_pop": 300,
+  "island_urgent_pop": 1000
 }

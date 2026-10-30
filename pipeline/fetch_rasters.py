@@ -2,8 +2,8 @@
 
 Reads only the flooded window of each raster from the public bucket (nothing downloaded whole).
 Needs: gcsfs pyogrio rasterio geopandas shapely
-Run:   python fetch_rasters.py nl      (or de / be)
-Writes exposure_pop_<cc>.csv and efas_check_<cc>.csv next to this file.
+Run:   python pipeline/fetch_rasters.py nl      (or de / be)
+Writes data/population/exposure_pop_<cc>.csv and data/flood/efas_check_<cc>.csv.
 """
 import csv
 import os
@@ -20,14 +20,17 @@ import rasterio
 from rasterio.features import rasterize
 from rasterio.windows import Window, from_bounds, transform as win_transform
 
-HERE = Path(__file__).parent
-ROOT = "datasets_challenge/working_data"
+ROOT = Path(__file__).resolve().parents[1]  # repository root
+DATA = ROOT / "data"
+GCS_ROOT = "datasets_challenge/working_data"
+for _sub in ("population", "flood"):
+    (DATA / _sub).mkdir(parents=True, exist_ok=True)
 GDAL_PREFIX = "/vsigs/"
 OVERSAMPLE = 10  # sub-cells per GHS-POP cell side, to weight cells by flooded share
 
 PAYS = sys.argv[1].lower()
 fs = gcsfs.GCSFileSystem(token="anon")
-inv = pd.DataFrame(list(csv.DictReader(open(HERE / "inventaire_ems.csv", encoding="utf-8"))))
+inv = pd.DataFrame(list(csv.DictReader(open(DATA / "inventory" / "inventaire_ems.csv", encoding="utf-8"))))
 t0 = time.time()
 
 paths = inv.loc[(inv.pays == PAYS) & inv.fichier.str.contains("observed", case=False), "path"]
@@ -45,7 +48,7 @@ def window_for(src, geom_wgs84):
 
 
 # --- Population: residents in the flooded area, weighted by flooded share of each cell ---
-pop_path = next(p for p in fs.find(f"{ROOT}/ghs_pop") if "E2020" in p and p.endswith(".tif") and "ovr" not in p)
+pop_path = next(p for p in fs.find(f"{GCS_ROOT}/ghs_pop") if "E2020" in p and p.endswith(".tif") and "ovr" not in p)
 with rasterio.open(f"{GDAL_PREFIX}{pop_path}") as src:
     win, g = window_for(src, union)
     pop = src.read(1, window=win, masked=True).astype("float64").filled(0)
@@ -61,13 +64,13 @@ with rasterio.open(f"{GDAL_PREFIX}{pop_path}") as src:
         "pop_in_touched_cells": float(pop[touched].sum()),
         "cells_touched": int(touched.sum()),
         "pop_in_window": float(pop.sum()),
-    }]).to_csv(HERE / f"exposure_pop_{PAYS}.csv", index=False)
+    }]).to_csv(DATA / "population" / f"exposure_pop_{PAYS}.csv", index=False)
 print(f"population done ({time.time() - t0:.0f} s)", flush=True)
 
 # --- EFAS: how much of the observed flood sits inside the modelled hazard zone ---
 rows = []
 for rp in (10, 100, 500):
-    p = next(x for x in fs.find(f"{ROOT}/cems-efas") if x.endswith(f"RP{rp}_filled_depth.tif"))
+    p = next(x for x in fs.find(f"{GCS_ROOT}/cems-efas") if x.endswith(f"RP{rp}_filled_depth.tif"))
     with rasterio.open(f"{GDAL_PREFIX}{p}") as src:
         win, g = window_for(src, union)
         depth = src.read(1, window=win, masked=True)
@@ -81,5 +84,5 @@ for rp in (10, 100, 500):
                      "share_modelled_%": 100 * float((mask & modelled).sum()) / max(n, 1),
                      "mean_depth_m_in_flood": float(d[mask & (d > 0)].mean()) if (mask & (d > 0)).any() else 0.0})
     print(f"  EFAS RP{rp} done ({time.time() - t0:.0f} s)", flush=True)
-pd.DataFrame(rows).to_csv(HERE / f"efas_check_{PAYS}.csv", index=False)
+pd.DataFrame(rows).to_csv(DATA / "flood" / f"efas_check_{PAYS}.csv", index=False)
 print(f"{PAYS}: done ({time.time() - t0:.0f} s)")

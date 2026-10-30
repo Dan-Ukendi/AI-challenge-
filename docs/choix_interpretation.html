@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choix d'interprétation des données</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c2430; --muted:#667085; --line:#d9dee6; --accent:#1f6feb; --ok:#1a7f37; --warn:#b54708; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12161c; --card:#1b212a; --text:#e6e9ee; --muted:#98a2b3; --line:#2b3340; --accent:#58a6ff; --ok:#3fb950; --warn:#f0883e; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,Segoe UI,sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:20px 16px 120px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .lead { color:var(--muted); margin:0 0 18px; }
+  h2 { font-size:17px; margin:28px 0 8px; padding-top:6px; border-top:2px solid var(--accent); }
+  .q { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:10px 0; }
+  .q.done-choice { border-left:4px solid var(--ok); }
+  .q h3 { margin:0 0 2px; font-size:15px; }
+  .why { color:var(--muted); font-size:13px; margin:0 0 8px; }
+  label.opt { display:block; padding:6px 8px; border:1px solid var(--line); border-radius:6px; margin:5px 0; cursor:pointer; }
+  label.opt:has(input:checked) { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, transparent); }
+  label.opt .eff { display:block; color:var(--muted); font-size:13px; margin-left:22px; }
+  .tag { font-size:11px; padding:1px 6px; border-radius:10px; border:1px solid currentColor; margin-left:6px; white-space:nowrap; }
+  .tag.fait { color:var(--warn); } .tag.rec { color:var(--ok); }
+  input[type=text] { width:100%; margin-top:6px; padding:6px 8px; font:inherit; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--text); }
+  .bar { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); padding:10px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .bar span { color:var(--muted); font-size:13px; flex:1; min-width:180px; }
+  button { font:inherit; padding:7px 14px; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:6px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); }
+  textarea { width:100%; height:200px; font:12px/1.4 ui-monospace,Consolas,monospace; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; }
+  .legend { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Choix d'interprétation des données</h1>
+  <p class="lead">Chaque décision que j'ai prise (souvent sans te demander) est listée ici avec ses options.
+    <span class="tag fait">fait jusqu'ici</span> = ce que contient l'application actuelle.
+    <span class="tag rec">suggestion</span> = mon avis, que tu peux ignorer. Rien n'est recalculé avant que tu aies envoyé tes choix.</p>
+  <div id="form"></div>
+  <h2>Tes choix (à coller dans le chat)</h2>
+  <textarea id="out" readonly></textarea>
+</main>
+<div class="bar">
+  <span id="count"></span>
+  <button class="ghost" id="reset">Réinitialiser</button>
+  <button id="copy">Copier mes choix</button>
+</div>
+<script>
+// Each decision: id, question, why it matters, options {v, t, d(effet)}, fait = value used so far, rec = suggestion
+const SECTIONS = [
+ { h: "A. Cadre de la politique", qs: [
+  { id: "A1", q: "Quel acteur public vise l'outil ?", why: "Le jury exige un acteur nommé : il détermine quelles actions et quels seuils ont du sens.", opts: [
+    { v: "regional", t: "Autorité régionale de protection civile", d: "Alertes, plans d'évacuation, cartes de danger : correspond à des niveaux de réponse par commune." },
+    { v: "commune", t: "Les communes elles-mêmes", d: "Actions locales (information, aménagement) ; les niveaux deviennent des priorités communales." },
+    { v: "national", t: "Niveau national ou européen", d: "Comparaison entre pays et régions ; plus agrégé, moins d'actions concrètes." },
+    { v: "autre", t: "Autre (à préciser en commentaire)", d: "" } ], rec: "regional" },
+  { id: "A2", q: "Quelle décision l'outil doit-il éclairer ?", why: "Détermine ce que « la réponse de chaque résident » veut dire.", opts: [
+    { v: "comm", t: "Où concentrer les messages de préparation et d'alerte", d: "Actions de résidents : s'inscrire aux alertes, itinéraire, kit d'urgence." },
+    { v: "adapt", t: "Où soutenir la protection physique des logements", d: "Aide à l'adaptation du bâti ; demande plutôt des données sur les bâtiments." },
+    { v: "cartes", t: "Où réviser les cartes de danger", d: "Utilise surtout le contraste observé / modélisé (EFAS)." },
+    { v: "mix", t: "Un mélange, par niveau", d: "C'est ce que fait l'application actuelle." } ], fait: "mix" },
+  { id: "A3", q: "Quels pays inclure ?", why: "La couverture est très inégale : 16 zones cartographiées en Allemagne, 2 en Belgique, 1 aux Pays-Bas.", opts: [
+    { v: "all", t: "Belgique + Allemagne + Pays-Bas", d: "Demandé au départ ; comparaisons entre pays biaisées par la couverture." },
+    { v: "de", t: "Allemagne seulement", d: "Mieux couverte ; résultats plus robustes mais un seul pays." },
+    { v: "pilot", t: "Une zone pilote (ex. vallée de l'Ahr)", d: "Cas détaillé, plus simple à défendre." } ], fait: "all" } ] },
+
+ { h: "B. L'inondation observée (Copernicus EMS)", qs: [
+  { id: "B1", q: "Quels produits EMS comptent comme « eau observée » ?", why: "En Allemagne, 12 des 22 fichiers « observed » sont des produits de gradation (GRA) ; l'Annexe 2 dit que les fichiers fournis sont des délimitations (DEL). Tout est fusionné par union.", opts: [
+    { v: "all", t: "Tous : DEL + GRA, cartes initiales + de suivi", d: "Étendue maximale observée, la plus large. Mélange des dates et des types de produits." },
+    { v: "del", t: "DEL seulement (délimitation d'étendue)", d: "Plus conforme à l'Annexe 2 ; enlève 1 395 polygones allemands." },
+    { v: "first", t: "Première carte seulement (PRODUCT)", d: "Une « photo » par zone, plus simple à expliquer." },
+    { v: "monit", t: "Cartes de suivi (MONIT) seulement", d: "Dates plus tardives." } ], fait: "all", rec: "del" },
+  { id: "B2", q: "Ignorer les communes à peine touchées ?", why: "Évite les chevauchements anecdotiques entre une commune et une zone inondée.", opts: [
+    { v: "0", t: "Garder toutes les communes touchées", d: "Plus de communes, dont de très marginales." },
+    { v: "0.5", t: "Seuil de 0,5 ha inondé", d: "" },
+    { v: "5", t: "Seuil de 5 ha inondés", d: "Carte plus lisible ; retire des petites communes réellement touchées." } ], fait: "0.5" },
+  { id: "B3", q: "Que fait-on des zones non cartographiées ?", why: "Hors des zones cartographiées, « non inondé » veut dire « non cartographié » (Annexe 2).", opts: [
+    { v: "lower", t: "Présenter les chiffres comme des minimums", d: "Honnête, mais les communes non cartographiées paraissent sans danger." },
+    { v: "grey", t: "Afficher les zones non cartographiées en gris « sans donnée »", d: "Distingue « pas d'inondation » de « pas d'information »." } ], fait: "lower", rec: "grey" } ] },
+
+ { h: "C. Les bâtiments (GHS-OBAT)", qs: [
+  { id: "C1", q: "Quels bâtiments compter ?", why: "Le code d'usage : 1 résidentiel, 2 non résidentiel, 0 hors du domaine bâti.", opts: [
+    { v: "all", t: "Tous les points dans l'eau", d: "Compte aussi les bâtiments d'usage 0 (≈ 1 %)." },
+    { v: "12", t: "Usage 1 et 2 seulement", d: "Retire les points hors du domaine bâti." },
+    { v: "res", t: "Résidentiels seulement (usage 1)", d: "Plus proche de « résidents » ; sous-estime les bâtiments publics." } ], fait: "all", rec: "12" },
+  { id: "C2", q: "Utiliser la surface des bâtiments ?", why: "L'Annexe 2 dit qu'on ne peut pas mesurer de surface, mais le champ « area » existe dans les données.", opts: [
+    { v: "show", t: "L'afficher comme indicatif", d: "C'est le cas actuellement." },
+    { v: "hide", t: "Ne compter que le nombre de bâtiments", d: "Évite un chiffre dont la fiabilité est incertaine." } ], fait: "show", rec: "hide" },
+  { id: "C3", q: "Comment traiter les bâtiments au bord de l'inondation ?", why: "Un point (centre du bâtiment) peut tomber dedans ou dehors selon sa position.", opts: [
+    { v: "strict", t: "Point strictement dans le polygone", d: "Actuel ; sous-estime les bâtiments au bord." },
+    { v: "buffer", t: "Tampon de 10 à 20 m autour de l'eau", d: "Compte les bâtiments au bord ; ajoute une hypothèse." } ], fait: "strict" } ] },
+
+ { h: "D. La population (GHS-POP)", qs: [
+  { id: "D1", q: "Quelle année de population ?", why: "L'Annexe 2 recommande E2020 pour l'événement de 2021 ; E2025 est une projection.", opts: [
+    { v: "2020", t: "E2020", d: "" }, { v: "2025", t: "E2025 (projection)", d: "Reflète la population actuelle, pas celle de 2021." } ], fait: "2020", rec: "2020" },
+  { id: "D2", q: "Comment compter les résidents exposés ?", why: "Une cellule d'environ 1 km est rarement inondée en entier.", opts: [
+    { v: "weighted", t: "Pondéré par la part inondée de la cellule", d: "Recommandé par l'Annexe 2 ; suppose les habitants répartis uniformément dans la cellule." },
+    { v: "touched", t: "Cellules touchées entières", d: "Borne haute ; surestime fortement." },
+    { v: "both", t: "Afficher les deux comme une fourchette", d: "Actuel dans le panneau latéral ; la carte utilise le pondéré." } ], fait: "weighted" },
+  { id: "D3", q: "Quelle population sert de dénominateur par commune ?", why: "Pour « résidents exposés pour 1 000 habitants ».", opts: [
+    { v: "ghs", t: "Population GHS-POP de la commune", d: "Même source et même méthode que le numérateur (actuel)." },
+    { v: "official", t: "Population officielle (Eurostat LAU 2023)", d: "Plus fiable pour le total, mais mélange deux sources. Écart médian d'environ 1 %." } ], fait: "ghs" },
+  { id: "D4", q: "Que veut dire « exposé » dans le texte ?", why: "Les données montrent qui habite dans une zone inondée, pas qui a subi des dommages ni été évacué.", opts: [
+    { v: "expose", t: "« Résidents exposés »", d: "Fidèle aux données." },
+    { v: "touches", t: "« Résidents touchés »", d: "Plus parlant, mais suggère des dommages que les données ne montrent pas." } ], fait: "expose", rec: "expose" } ] },
+
+ { h: "E. Le danger modélisé (EFAS)", qs: [
+  { id: "E1", q: "Quelle période de retour sert de référence ?", why: "Une crue centennale a 1 % de chance par an ; la crue de 2021 a dépassé le modèle par endroits.", opts: [
+    { v: "10", t: "10 ans", d: "Zone très fréquemment inondée." },
+    { v: "100", t: "100 ans", d: "Référence usuelle en gestion du risque (actuel)." },
+    { v: "500", t: "500 ans", d: "Le plafond du modèle." } ], fait: "100" },
+  { id: "E2", q: "Quel rôle donner à EFAS dans les niveaux ?", why: "Les cellules vides veulent dire « non modélisé » ou « pas d'inondation » ; on ne peut pas les distinguer. Les petites rivières (< 500 km²) ne sont pas modélisées.", opts: [
+    { v: "axis", t: "Un axe des niveaux (« zone de danger connue » ou non)", d: "Actuel ; sépare 1A et 1B, avec les limites ci-contre." },
+    { v: "info", t: "Information complémentaire dans la fenêtre, sans effet sur le niveau", d: "Plus prudent." },
+    { v: "none", t: "Ne pas utiliser EFAS", d: "Niveaux fondés sur l'exposition seule." } ], fait: "axis", rec: "info" },
+  { id: "E3", q: "Si EFAS reste un axe : à partir de quelle part l'inondation est-elle « dans la zone connue » ?", why: "Un seuil net crée des frontières artificielles (48 % ou 50 % donnent des niveaux différents).", opts: [
+    { v: "50", t: "50 %", d: "Actuel." }, { v: "30", t: "30 %", d: "" }, { v: "70", t: "70 %", d: "" },
+    { v: "cont", t: "Pas de seuil : afficher la part en continu", d: "" } ], fait: "50" } ] },
+
+ { h: "F. Découpage géographique", qs: [
+  { id: "F1", q: "Quelle unité pour la carte ?", why: "Les communes donnent des noms de villes et villages ; les NUTS 3 sont plus larges et plus stables.", opts: [
+    { v: "lau", t: "Communes (LAU 2023, Eurostat)", d: "298 communes touchées ; population GHS-POP à 1 km peu précise pour les petits villages." },
+    { v: "nuts3", t: "NUTS 3", d: "44 régions ; lecture plus simple, moins de détail local." },
+    { v: "both", t: "Les deux avec un sélecteur", d: "" } ], fait: "lau" } ] },
+
+ { h: "G. Les niveaux de réponse", qs: [
+  { id: "G1", q: "Quelle mesure décide de la priorité ?", why: "Une grande ville avec 1 500 exposés (1,3 pour 1 000) et un village avec 300 exposés (300 pour 1 000) ne se classent pas de la même façon.", opts: [
+    { v: "rate", t: "Résidents exposés pour 1 000 habitants", d: "Actuel ; met en avant les petites communes très touchées." },
+    { v: "abs", t: "Nombre absolu de résidents exposés", d: "Met en avant les grandes villes." },
+    { v: "both", t: "Les deux (règle sur les deux)", d: "Plus complet, règle plus complexe." },
+    { v: "bld", t: "Bâtiments en zone inondée", d: "Dépend de la couverture OBAT, incomplète (surtout en Belgique)." } ], fait: "rate" },
+  { id: "G2", q: "Comment fixer les seuils ?", why: "Aujourd'hui : 50 et 10 pour 1 000, choisis en regardant la répartition de cet échantillon.", opts: [
+    { v: "relative", t: "Relatifs aux données (percentiles)", d: "Actuel ; classe les communes les unes par rapport aux autres." },
+    { v: "absolute", t: "Seuils absolus fixés par l'acteur public", d: "Plus défendable, demande une source (à indiquer en commentaire)." },
+    { v: "terciles", t: "Terciles (trois groupes égaux)", d: "Simple à expliquer ; ne dit rien sur la gravité absolue." } ], fait: "relative" },
+  { id: "G3", q: "Combien de niveaux ?", why: "", opts: [
+    { v: "4", t: "4 niveaux (1A, 1B, 2, 3)", d: "Actuel." },
+    { v: "3", t: "3 niveaux (sans l'axe de danger EFAS)", d: "Plus simple ; revient au choix E2 « information »." },
+    { v: "2", t: "2 niveaux (priorité / suivi)", d: "" } ], fait: "4" },
+  { id: "G4", q: "Qui écrit les actions pour les résidents ?", why: "Les actions actuelles sont des mesures génériques que j'ai rédigées ; elles ne viennent d'aucune source officielle.", opts: [
+    { v: "draft", t: "Garder mes brouillons génériques, marqués « à valider »", d: "Actuel." },
+    { v: "source", t: "Les fonder sur des consignes officielles (à citer)", d: "Plus défendable ; il faut trouver les sources." },
+    { v: "none", t: "Pas d'actions : carte descriptive seulement", d: "Évite d'inventer des consignes." } ], fait: "draft", rec: "source" } ] },
+
+ { h: "H. Présentation et diffusion", qs: [
+  { id: "H1", q: "Langue de l'application et du rapport", why: "", opts: [
+    { v: "en", t: "Anglais", d: "Actuel." }, { v: "fr", t: "Français", d: "" }, { v: "both", t: "Bilingue", d: "" } ], fait: "en" },
+  { id: "H2", q: "Où publier ?", why: "Le dépôt GitHub indiqué est public ; il contiendrait des données dérivées du défi. Rien n'a été poussé.", opts: [
+    { v: "public", t: "Dépôt public avec l'application et les données dérivées", d: "" },
+    { v: "private", t: "Dépôt privé ou accès restreint à l'équipe", d: "" },
+    { v: "local", t: "Fichiers locaux seulement, partagés à la main", d: "" } ], rec: "private" }
+ ] }
+];
+
+const form = document.getElementById("form"), out = document.getElementById("out");
+const KEY = "choix_interpretation_v1";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { state = {}; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+SECTIONS.forEach(sec => {
+  form.insertAdjacentHTML("beforeend", `<h2>${esc(sec.h)}</h2>`);
+  sec.qs.forEach(q => {
+    const opts = q.opts.map(o => `<label class="opt"><input type="radio" name="${q.id}" value="${o.v}"> ${esc(o.t)}` +
+      (q.fait === o.v ? '<span class="tag fait">fait jusqu\'ici</span>' : "") + (q.rec === o.v ? '<span class="tag rec">suggestion</span>' : "") +
+      (o.d ? `<span class="eff">${esc(o.d)}</span>` : "") + "</label>").join("");
+    form.insertAdjacentHTML("beforeend", `<section class="q" id="q-${q.id}"><h3>${q.id}. ${esc(q.q)}</h3>${q.why ? `<p class="why">${esc(q.why)}</p>` : ""}${opts}<input type="text" placeholder="Commentaire ou précision (facultatif)" data-c="${q.id}"></section>`);
+  });
+});
+
+function render() {
+  const all = SECTIONS.flatMap(s => s.qs);
+  const lines = all.map(q => {
+    const o = q.opts.find(x => x.v === state[q.id]), c = (state["c_" + q.id] || "").trim();
+    return `${q.id} ${q.q}\n  -> ${o ? o.t + (q.fait === o.v ? " (inchangé)" : "") : "(pas encore choisi)"}${c ? "\n  commentaire: " + c : ""}`;
+  });
+  out.value = lines.join("\n");
+  const n = all.filter(q => state[q.id]).length;
+  document.getElementById("count").textContent = `${n} choix sur ${all.length}`;
+  all.forEach(q => document.getElementById("q-" + q.id).classList.toggle("done-choice", !!state[q.id]));
+}
+form.addEventListener("change", e => { if (e.target.type === "radio") { state[e.target.name] = e.target.value; save(); render(); } });
+form.addEventListener("input", e => { if (e.target.dataset.c) { state["c_" + e.target.dataset.c] = e.target.value; save(); render(); } });
+Object.entries(state).forEach(([k, v]) => {
+  if (k.startsWith("c_")) { const el = form.querySelector(`[data-c="${k.slice(2)}"]`); if (el) el.value = v; }
+  else { const el = form.querySelector(`input[name="${k}"][value="${v}"]`); if (el) el.checked = true; }
+});
+document.getElementById("copy").onclick = () => { out.select(); try { navigator.clipboard.writeText(out.value); } catch (e) { document.execCommand("copy"); } };
+document.getElementById("reset").onclick = () => { if (confirm("Effacer tous tes choix ?")) { state = {}; save(); location.reload(); } };
+render();
+</script>
+</body>
+</html>

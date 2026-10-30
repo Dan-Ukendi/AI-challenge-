@@ -1,0 +1,29 @@
+data/official_zones/uesg_de.gpkg (layer uesg_de, EPSG:25832): official German flood zones, Rhineland-Palatinate (RLP) + North Rhine-Westphalia (NRW)
+Retrieved: 2026-10-29 (script prepare_uesg.py; the app reads only this local file).
+Study area: bounding box of the Copernicus EMS mapped areas in Germany, WGS84 6.02745, 49.54262, 7.73199, 51.48178 (objects touching it are kept).
+
+RLP
+  Service : https://www.geoportal.rlp.de/spatial-objects/650 (OGC API Features; the "www." host is needed for the TLS certificate)
+  Layers  : uesg:uesg_gesetzlich (183 objects, 178 in the area; status from STAND_BEZ: festgesetzt / vorläufig gesichert)
+            uesg:risikogebiete_ausserhalb_uesg (117 / 69)       -> "Risikogebiet außerhalb ÜSG"
+            uesg:RISIKOGEBIETE_AUSSERHALB_UESG_WEITERE (78 / 78) -> "Risikogebiet außerhalb ÜSG"
+  Licence : CC BY 4.0 as read in the service metadata; attribution to the water management administration of Rhineland-Palatinate (Wasserwirtschaftsverwaltung RLP) is required. To be re-checked by the team before publication.
+  Notes   : bbox filter does not work on risikogebiete_ausserhalb_uesg (whole layer downloaded, clipped locally); each count equals the server's numberMatched.
+
+NRW
+  File    : https://www.opengeodata.nrw.de/produkte/umwelt_klima/wasser/hochwasser/uesg/uesg_EPSG25832_Shape.zip (98,211,219 bytes)
+  Last-Modified header: Thu, 29 Oct 2026 06:53:08 GMT
+  sha256  : 0ad7892f9257f347ec447f30f3e03e8018024ca91844fa15666bbb4c1c819d8f
+  Layers  : festgesetzte_Ueberschwemmungsgebiete (757 in NRW, 305 in the area) -> festgesetzt
+            vorlaeufig_gesicherte_Ueberschwemmungsgebiete (126, 28)            -> vorläufig gesichert
+  Source  : LANUK NRW / Geoportal.NRW (open data portal opengeodata.nrw.de)
+  Licence : Datenlizenz Deutschland Zero 2.0 as listed on the open-data portal. To be re-checked by the team.
+  Notes   : the WFS link listed on the CKAN page was not reachable; the zip was used instead.
+
+Results of the run (area in ha, sum of objects, overlaps between objects not removed):
+  NRW festgesetzt 305 obj 51,469 | NRW vorläufig gesichert 28 obj 11,260
+  RLP festgesetzt 167 obj 25,179 | RLP vorläufig gesichert 11 obj 1,414
+  RLP Risikogebiet außerhalb ÜSG 147 obj 48,916
+28 invalid geometries were repaired (make_valid).
+Limits: the Länder do not apply the same statuses; "Risikogebiet außerhalb ÜSG" is not a legal flood zone; the sums double-count overlapping objects.
+Full run details: data/official_zones/uesg_de_run.json

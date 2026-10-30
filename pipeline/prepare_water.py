@@ -2,8 +2,8 @@
 
 Reads only the flooded window of each EFAS raster from the public bucket.
 Needs: gcsfs pyogrio rasterio geopandas shapely
-Run:   python prepare_water.py be de nl
-Writes water_<cc>.json next to this file (read by build_app.py).
+Run:   python pipeline/prepare_water.py be de nl
+Writes data/flood/water_<cc>.json (read by src/build_app.py).
 """
 import base64
 import csv
@@ -23,8 +23,11 @@ import rasterio
 from rasterio.windows import Window, from_bounds
 from shapely.geometry import mapping
 
-HERE = Path(__file__).parent
-ROOT = "datasets_challenge/working_data"
+ROOT = Path(__file__).resolve().parents[1]  # repository root
+DATA = ROOT / "data"
+GCS_ROOT = "datasets_challenge/working_data"
+OUT = DATA / "flood"
+OUT.mkdir(parents=True, exist_ok=True)
 GDAL_PREFIX = "/vsigs/"
 MAX_PX = 1600  # longest side of each depth image
 PAD = 0.02     # degrees of margin around the flood extent
@@ -33,7 +36,7 @@ BINS = [(0.5, (198, 219, 239, 190)), (1, (158, 202, 225, 200)), (2, (107, 174, 2
         (4, (49, 130, 189, 220)), (float("inf"), (8, 48, 107, 235))]
 
 fs = gcsfs.GCSFileSystem(token="anon")
-inv = pd.DataFrame(list(csv.DictReader(open(HERE / "inventaire_ems.csv", encoding="utf-8"))))
+inv = pd.DataFrame(list(csv.DictReader(open(DATA / "inventory" / "inventaire_ems.csv", encoding="utf-8"))))
 
 
 def png_rgba(rgba):
@@ -67,7 +70,7 @@ for cc in sys.argv[1:]:
     out = {"flood": {"type": "Feature", "properties": {}, "geometry": json.loads(json.dumps(mapping(union)))}, "efas": {}}
     west, south, east, north = flood.total_bounds
     for rp in (10, 100, 500):
-        p = next(x for x in fs.find(f"{ROOT}/cems-efas") if x.endswith(f"RP{rp}_filled_depth.tif"))
+        p = next(x for x in fs.find(f"{GCS_ROOT}/cems-efas") if x.endswith(f"RP{rp}_filled_depth.tif"))
         with rasterio.open(f"{GDAL_PREFIX}{p}") as src:
             win = from_bounds(west - PAD, south - PAD, east + PAD, north + PAD, src.transform)
             win = win.round_offsets().round_lengths().intersection(Window(0, 0, src.width, src.height))
@@ -78,5 +81,5 @@ for cc in sys.argv[1:]:
                                 "png": "data:image/png;base64," + base64.b64encode(png).decode()}
         print(f"{cc} RP{rp}: {depth.shape} px, {len(png) / 1e3:,.0f} KB png", flush=True)
     s = json.dumps(out, separators=(",", ":"))
-    (HERE / f"water_{cc}.json").write_text(s)
+    (OUT / f"water_{cc}.json").write_text(s)
     print(f"{cc}: water_{cc}.json {len(s) / 1e6:.2f} MB", flush=True)

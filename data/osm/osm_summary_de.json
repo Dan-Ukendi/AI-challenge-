@@ -1,0 +1,254 @@
+{
+ "country": "DE",
+ "near_m": 100,
+ "positions": [
+  "in water",
+  "within 100 m",
+  "outside"
+ ],
+ "n_poi": 15610,
+ "aoi_km2": 6153,
+ "source": "Geofabrik extract",
+ "snapshot": "210101",
+ "osm_date": "2021-01-01",
+ "categories": {
+  "vulnerable": "Vulnerable sites",
+  "infrastructure": "Critical infrastructure",
+  "hazard": "Hazard sources",
+  "shelter": "Possible shelters"
+ },
+ "counts": [
+  {
+   "categorie": "hazard",
+   "type": "dam",
+   "in water": 1,
+   "within 100 m": 6,
+   "outside": 27,
+   "total": 34
+  },
+  {
+   "categorie": "hazard",
+   "type": "fuel",
+   "in water": 10,
+   "within 100 m": 14,
+   "outside": 819,
+   "total": 843
+  },
+  {
+   "categorie": "hazard",
+   "type": "industrial",
+   "in water": 13,
+   "within 100 m": 51,
+   "outside": 1496,
+   "total": 1560
+  },
+  {
+   "categorie": "hazard",
+   "type": "landfill",
+   "in water": 0,
+   "within 100 m": 4,
+   "outside": 108,
+   "total": 112
+  },
+  {
+   "categorie": "hazard",
+   "type": "works",
+   "in water": 2,
+   "within 100 m": 29,
+   "outside": 955,
+   "total": 986
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "fire_station",
+   "in water": 13,
+   "within 100 m": 23,
+   "outside": 673,
+   "total": 709
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "mast",
+   "in water": 8,
+   "within 100 m": 20,
+   "outside": 545,
+   "total": 573
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "police",
+   "in water": 1,
+   "within 100 m": 5,
+   "outside": 177,
+   "total": 183
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "pumping_station",
+   "in water": 2,
+   "within 100 m": 2,
+   "outside": 34,
+   "total": 38
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "substation",
+   "in water": 6,
+   "within 100 m": 69,
+   "outside": 2571,
+   "total": 2646
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "tower",
+   "in water": 0,
+   "within 100 m": 6,
+   "outside": 207,
+   "total": 213
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "wastewater_plant",
+   "in water": 9,
+   "within 100 m": 60,
+   "outside": 373,
+   "total": 442
+  },
+  {
+   "categorie": "infrastructure",
+   "type": "water_works",
+   "in water": 3,
+   "within 100 m": 20,
+   "outside": 110,
+   "total": 133
+  },
+  {
+   "categorie": "shelter",
+   "type": "assembly_point",
+   "in water": 0,
+   "within 100 m": 0,
+   "outside": 57,
+   "total": 57
+  },
+  {
+   "categorie": "shelter",
+   "type": "community_centre",
+   "in water": 4,
+   "within 100 m": 22,
+   "outside": 551,
+   "total": 577
+  },
+  {
+   "categorie": "shelter",
+   "type": "conference_centre",
+   "in water": 0,
+   "within 100 m": 0,
+   "outside": 16,
+   "total": 16
+  },
+  {
+   "categorie": "shelter",
+   "type": "events_venue",
+   "in water": 1,
+   "within 100 m": 2,
+   "outside": 26,
+   "total": 29
+  },
+  {
+   "categorie": "shelter",
+   "type": "exhibition_centre",
+   "in water": 0,
+   "within 100 m": 0,
+   "outside": 2,
+   "total": 2
+  },
+  {
+   "categorie": "shelter",
+   "type": "social_centre",
+   "in water": 0,
+   "within 100 m": 1,
+   "outside": 21,
+   "total": 22
+  },
+  {
+   "categorie": "shelter",
+   "type": "sports_centre",
+   "in water": 26,
+   "within 100 m": 43,
+   "outside": 1504,
+   "total": 1573
+  },
+  {
+   "categorie": "shelter",
+   "type": "sports_hall",
+   "in water": 0,
+   "within 100 m": 1,
+   "outside": 14,
+   "total": 15
+  },
+  {
+   "categorie": "shelter",
+   "type": "townhall",
+   "in water": 3,
+   "within 100 m": 2,
+   "outside": 153,
+   "total": 158
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "assisted_living",
+   "in water": 1,
+   "within 100 m": 3,
+   "outside": 111,
+   "total": 115
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "clinic",
+   "in water": 2,
+   "within 100 m": 4,
+   "outside": 61,
+   "total": 67
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "hospital",
+   "in water": 2,
+   "within 100 m": 3,
+   "outside": 157,
+   "total": 162
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "kindergarten",
+   "in water": 12,
+   "within 100 m": 29,
+   "outside": 2092,
+   "total": 2133
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "nursing_home",
+   "in water": 2,
+   "within 100 m": 5,
+   "outside": 238,
+   "total": 245
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "prison",
+   "in water": 0,
+   "within 100 m": 0,
+   "outside": 15,
+   "total": 15
+  },
+  {
+   "categorie": "vulnerable",
+   "type": "school",
+   "in water": 22,
+   "within 100 m": 23,
+   "outside": 1907,
+   "total": 1952
+  }
+ ]
+}
