@@ -21,3 +21,7 @@ CLAUDE.md
 scratch*/
 *.tmp
 .ipynb_checkpoints/
+
+# secrets (the assistant's key lives only in the environment)
+.env
+*.key

@@ -48,7 +48,7 @@ const SHORT = { "1A": "Highest priority", "1B": "Highest priority", "2": "Medium
 const PLAIN = { "1A": "Highest priority: the flood reached places the hazard maps did not show", "1B": "Highest priority: known flood zone",
   "2": "Medium priority", "3": "Lower priority, or no flood detected", "ND": "No data: mostly not mapped" };
 const TIER_ORD = ["1A", "1B", "2", "3", "ND"];
-const onTier = k => (k === "1A" || k === "1B") ? "#fff" : "#111";
+const onTier = k => k === "1A" ? "#fff" : "#111";   // contrast >= 4.5:1 on every tier colour
 const tierLabel = c => (c.tier === "3" && c.flood_ha <= 0) ? "No flood detected" : SHORT[c.tier];
 const badgeC = c => `<span class="badge" style="background:${D.tiers[c.tier].color};color:${onTier(c.tier)}">${tierLabel(c)}</span>`;
 const SINGULAR = { school: "school", kindergarten: "kindergarten", hospital: "hospital", clinic: "clinic", nursing_home: "care home", assisted_living: "assisted-living site",
@@ -92,13 +92,11 @@ function inRing(pt, ring) { let c = false; for (let i = 0, j = ring.length - 1; 
 const inGeom = (pt, g) => (g.type === "Polygon" ? [g.coordinates] : g.coordinates).some(p => inRing(pt, p[0]) && !p.slice(1).some(h => inRing(pt, h)));
 function bboxOf(g) { let a = 1e9, b = 1e9, c = -1e9, d = -1e9; (g.type === "Polygon" ? [g.coordinates] : g.coordinates).forEach(p => p[0].forEach(([x, y]) => { a = Math.min(a, x); b = Math.min(b, y); c = Math.max(c, x); d = Math.max(d, y); })); return [a, b, c, d]; }
 
-// --- maps (light basemap; new maps are created lazily, the first time their tab is opened) ---
+// --- maps (themed basemap; new maps are created lazily, the first time their tab is opened) ---
 function newMap(id, bounds) {
   const m = L.map(id, { preferCanvas: true });
-  // Esri light-grey canvas + place names: needs no API key and works when the page is opened as a local file
-  const esri = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/";
-  L.tileLayer(esri + "World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 16, attribution: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ. Sites: &copy; OpenStreetMap contributors" }).addTo(m);
-  L.tileLayer(esri + "World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, maxNativeZoom: 16 }).addTo(m);
+  // Esri grey canvas + place names, light or dark with the theme (addBasemap keeps them in the registry the theme toggle updates)
+  addBasemap(m, "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ. Sites: &copy; OpenStreetMap contributors");
   m.fitBounds(bounds);
   return m;
 }
@@ -115,33 +113,114 @@ function syncCtry() { ctryBox.querySelectorAll("button").forEach(b => b.setAttri
 ctryBox.addEventListener("click", e => { const b = e.target.closest("button[data-cc]"); if (!b) return; CTRY = b.dataset.cc; syncCtry(); route(); });
 
 // ---------- Overview ----------
+// Small inline SVG icon set (one style: 24 px grid, rounded 1.8 px strokes or plain fills, colour = currentColor): no image files, works offline
+const ICON = {
+  person: '<circle cx="12" cy="7.5" r="4"/><path d="M4 21.5c0-4.6 3.6-8 8-8s8 3.4 8 8z"/>',
+  house: '<path d="M3 11.2 12 3l9 8.2V21H3z"/><path d="M10 21v-5.5h4V21" fill="none" stroke="var(--card)" stroke-width="1.6"/>',
+  wave: '<path d="M3 8.5c3-3 6 3 9 0s6 3 9 0M3 14c3-3 6 3 9 0s6 3 9 0M3 19.5c3-3 6 3 9 0s6 3 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  shield: '<path d="M12 2.5 20 5.5v6c0 5-3.4 8.7-8 10.5-4.6-1.8-8-5.5-8-10.5v-6z"/><path d="M12 8v7M8.5 11.5h7" fill="none" stroke="var(--card)" stroke-width="2" stroke-linecap="round"/>',
+  cross: '<circle cx="12" cy="12" r="10"/><path d="M12 7v10M7 12h10" fill="none" stroke="var(--card)" stroke-width="2.2" stroke-linecap="round"/>',
+  school: '<path d="M2 9.5 12 4.5l10 5-10 5z"/><path d="M6 12.5v4.2c0 1.6 2.7 3 6 3s6-1.4 6-3v-4.2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  care: '<path d="M3 11.2 12 3l9 8.2V21H3z"/><path d="M12 17.5s-3.2-1.9-3.2-4.1a1.8 1.8 0 0 1 3.2-1.1 1.8 1.8 0 0 1 3.2 1.1c0 2.2-3.2 4.1-3.2 4.1z" fill="var(--card)"/>',
+  pin: '<path d="M12 2.5c-4 0-7 3-7 6.9 0 5 7 12.1 7 12.1s7-7.100 7-12.100c0-3.900-3-6.900-7-6.900z"/><circle cx="12" cy="9.400" r="2.600" fill="var(--card)"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  alert: '<path d="M12 3 22 20H2z"/><path d="M12 9.500v4.500M12 17v.1" fill="none" stroke="var(--card)" stroke-width="2.200" stroke-linecap="round"/>',
+  map: '<path d="M9 4 3 6.500v13.500l6-2.500 6 2.500 6-2.500V4l-6 2.500z"/><path d="M9 4v13.500M15 6.500V20" fill="none" stroke="var(--card)" stroke-width="1.600"/>',
+  route: '<circle cx="6" cy="18" r="2.600"/><circle cx="18" cy="6" r="2.600"/><path d="M6 15.400V9a3 3 0 0 1 3-3h6.200M18 8.600V15a3 3 0 0 1-3 3H8.800" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  list: '<path d="M8 6.500h13M8 12h13M8 17.500h13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="3.800" cy="6.500" r="1.500"/><circle cx="3.800" cy="12" r="1.500"/><circle cx="3.800" cy="17.500" r="1.500"/>',
+  search: '<circle cx="10.500" cy="10.500" r="6.500" fill="none" stroke="currentColor" stroke-width="2.200"/><path d="m15.500 15.500 5.500 5.500" fill="none" stroke="currentColor" stroke-width="2.200" stroke-linecap="round"/>',
+  sun: '<circle cx="12" cy="12" r="4.5"/><path d="M12 1.8v2.6M12 19.6v2.6M1.8 12h2.6M19.6 12h2.6M4.8 4.8l1.8 1.8M17.4 17.4l1.8 1.8M4.8 19.2l1.8-1.8M17.4 6.6l1.8-1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  moon: '<path d="M20.5 14.6A8.5 8.5 0 0 1 9.4 3.5a8.5 8.5 0 1 0 11.1 11.1z"/>',
+  download: '<path d="M12 3.5v11M7 10l5 5 5-5M4.5 19.5h15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  print: '<path d="M7 9V3.5h10V9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4.5 9h15a2 2 0 0 1 2 2v6h-4v-2.5h-11V17h-4v-6a2 2 0 0 1 2-2z"/><path d="M7 14.5h10v6H7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  filter: '<path d="M3 4.5h18l-7 8.2v6.3l-4 2v-8.3z"/>',
+  clock: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5.2l3.4 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  flame: '<path d="M12 2.5c.6 3.2 2.6 4.8 4.2 6.6A7 7 0 0 1 19 14.2a7 7 0 0 1-14 0c0-2.6 1.3-4.4 2.6-5.6.2 1.7 1 2.8 2.2 3.3C9.4 8.4 10.4 5 12 2.5z"/>',
+  bed: '<path d="M2.5 6v13M2.5 15.5h19V19M21.5 15.5v-3.2a3 3 0 0 0-3-3H11v6.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.8" cy="11.8" r="2.3"/>',
+  check: '<path d="m5 12.5 4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  road: '<path d="M9 3 5 21M15 3l4 18M12 5v2.5M12 10.8v2.5M12 16.5V19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  walk: '<circle cx="13" cy="4.5" r="2.2"/><path d="M10.5 21l2-6.5 2.5 2.5V21M8 12.5l2-4.5 3.5-.5 2.5 3.5 2.5 1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  car: '<path d="M5 11.5 6.8 6.6a2 2 0 0 1 1.9-1.3h6.6a2 2 0 0 1 1.9 1.3l1.8 4.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3.5 12.5A1.5 1.5 0 0 1 5 11h14a1.5 1.5 0 0 1 1.5 1.5V17h-17z"/><path d="M5.5 17v2.2M18.5 17v2.2" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 11v6M12 7.5v.1" fill="none" stroke="var(--card)" stroke-width="2.2" stroke-linecap="round"/>',
+  layers: '<path d="M12 3 2.5 8 12 13l9.5-5z"/><path d="m2.5 12.5 9.5 5 9.5-5M2.5 16.5l9.5 5 9.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+  sites: '<path d="M12 2.500c-4 0-7 3-7 6.900 0 5 7 12.100 7 12.100s7-7.100 7-12.100c0-3.900-3-6.900-7-6.900z"/><circle cx="12" cy="9.400" r="2.600" fill="var(--card)"/>'
+};
+const svg = (name, size = 20, extra = "") => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" ${extra}>${ICON[name]}</svg>`;
+// static buttons of the page carry data-ic="name": their icon is added here (one icon set, no image files)
+document.querySelectorAll("[data-ic]").forEach(el => el.insertAdjacentHTML("afterbegin", svg(el.dataset.ic, 16)));
+// theme button: ONE theme for the whole app (dark or light, maps included), remembered by the browser
+(function () {
+  const b = document.getElementById("themeBtn"); if (!b) return;
+  b.innerHTML = ["sun", "moon"].map(n => `<svg class="ic th-${n}" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">${ICON[n]}</svg>`).join("");
+  b.addEventListener("click", () => setTheme(curTheme() === "dark" ? "light" : "dark"));
+  syncThemeBtn();
+})();
+const SITE_ICON = { hospital: "cross", clinic: "cross", school: "school", kindergarten: "school", nursing_home: "care", assisted_living: "care", prison: "shield" };
+// pictogram row: one icon stands for `unit` residents (or buildings...); the last icon is partly filled for the remainder, so the row is the true number, rounded
+function pictogram(name, value, unit, size, label) {
+  const full = Math.floor(value / unit), part = value / unit - full, items = [];
+  for (let i = 0; i < full; i++) items.push(svg(name, size));
+  if (part >= 0.08) { const id = "pg" + name + Math.round(value);
+    items.push(`<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="${id}"><stop offset="${part}" stop-color="currentColor"/><stop offset="${part}" stop-color="currentColor" stop-opacity=".18"/></linearGradient></defs><g fill="url(#${id})">${ICON[name]}</g></svg>`); }
+  return `<div class="pic" role="img" aria-label="${esc(label)}">${items.join("")}</div>`;
+}
+const niceUnit = (v, maxIcons) => [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000].find(u => v / u <= maxIcons) || 500000;
+// thin bar on a lighter track of the same colour (the unfilled part reads as part of the same measure)
+const bar = (share, tip) => `<div class="mbar" title="${esc(tip)}"><i style="width:${Math.max(2, Math.round(share * 100))}%"></i></div>`;
+
 function renderOverview() {
   const x = X(), C = x.C, N = NAMES[CTRY];
   const ha = C.flood_aoi.reduce((a, r) => a + Number(r.eau_ha), 0);
   const v = x.bes.filter(s => s.categorie === "vulnerable"), vIn = v.filter(s => s.position === POS_IN).length;
-  const vList = [...v.reduce((m, s) => m.set(s.type, (m.get(s.type) || 0) + 1), new Map())].map(([t, n]) => typeText(t, n)).join(", ");
+  const vTypes = [...v.reduce((m, s) => m.set(s.type, (m.get(s.type) || 0) + 1), new Map())].sort((a, b) => b[1] - a[1]);
   const top = x.comm.filter(c => c.pop_exposed > 0).sort((a, b) => b.pop_exposed - a.pop_exposed).slice(0, 3);
   const others = CODES.filter(cc => cc !== CTRY).map(cc => NAMES[cc]).join(" and ");
+  const res = C.pop.pop_exposed, rUnit = niceUnit(res, 12);
+  const bs = C.buildings_summary, inShare = bs.count ? bs.inside / bs.count : 0;
+  const zonesBars = [...C.flood_aoi].sort((a, b) => b.eau_ha - a.eau_ha).slice(0, 4), maxHa = Math.max(...zonesBars.map(r => Number(r.eau_ha)), 1);
+  const steps = [["#map", "map", "Look at the map", "See which communes were most affected. Click one for a summary."],
+    ["#region", "search", "Find a region", "Search any commune of the three countries: its exposure, what was in the 2021 flood, what to tell residents."],
+    ["#priority", "list", "Use the priority list", "The communes ranked by residents in the flood. Download it as a spreadsheet."],
+    ["#sites", "sites", "Check sites near the flood", "Schools, hospitals, care homes and other sites in or next to the flood."],
+    ["#route", "route", "Plan a route", "Drop a pin and see the roads to the nearest shelters, planned to avoid the water in our data."]];
   document.getElementById("ovBody").innerHTML = `
-    <h1>What the satellite maps show for ${esc(N)}, July 2021</h1>
-    <p class="lead">Satellites mapped the flood in ${esc(zonesText(x))}. This tool shows what was inside the mapped flood: people, buildings and important sites. Choose a tab above to explore.</p>
-    <div class="big">
-      <div class="k"><b>about ${approx(C.pop.pop_exposed)}</b><span>residents lived in the flooded area</span></div>
-      <div class="k"><b>${fmt(C.buildings_summary.count)}</b><span>buildings in or within ${BUF} m of the flood (${fmt(C.buildings_summary.inside)} strictly inside)</span></div>
-      <div class="k"><b>${fmt(Math.round(ha / 10) * 10)} ha</b><span>of flooded land mapped in ${x.zones.length === 1 ? "the zone" : "the " + x.zones.length + " zones"}</span></div>
-      <div class="k"><b>${v.length}</b><span>vulnerable sites ${v.length ? `(${vList}) ` : ""}within ${NEAR} m of the flood${vIn ? `, ${vIn} inside it` : ", none inside it"}</span></div>
+    <section class="ov-hero">
+      <div class="ov-eyebrow">${svg("wave", 18)} Flood preparedness &middot; ${esc(N)}</div>
+      <h1>What the satellite maps show for ${esc(N)}, July 2021</h1>
+      <p>Satellites mapped the flood in ${esc(zonesText(x))}. This tool shows what was inside the mapped flood: people, buildings and important sites. Choose a tab above to explore.</p>
+    </section>
+    <div class="ov-grid">
+      <article class="ov-card ov-hero-card">
+        <div class="ov-label"><span class="ov-badge">${svg("person", 18)}</span>Residents in the flooded area</div>
+        <div class="ov-value ov-xl">about ${approx(res)}</div>
+        ${pictogram("person", res, rUnit, 40, `${fmt(Math.round(res / 100) * 100)} residents, one icon is about ${fmt(rUnit)} residents`)}
+        <div class="ov-cap">Each icon is about ${fmt(rUnit)} residents (GHS-POP 2020, an estimate).</div>
+      </article>
+      <article class="ov-card">
+        <div class="ov-label"><span class="ov-badge">${svg("house", 18)}</span>Buildings in or near the flood</div>
+        <div class="ov-value">${fmt(bs.count)}</div>
+        <div class="pic pic-split" role="img" aria-label="${fmt(bs.inside)} of ${fmt(bs.count)} buildings are strictly inside the flood">${Array.from({ length: 10 }, (_, i) => `<span class="${i < Math.round(inShare * 10) ? "on" : "off"}">${svg("house", 22)}</span>`).join("")}</div>
+        <div class="ov-cap"><b>${fmt(bs.inside)}</b> strictly inside, ${fmt(bs.count - bs.inside)} within ${BUF} m of it.</div>
+      </article>
+      <article class="ov-card">
+        <div class="ov-label"><span class="ov-badge">${svg("wave", 18)}</span>Flooded land mapped</div>
+        <div class="ov-value">${fmt(Math.round(ha / 10) * 10)} <small>ha</small></div>
+        <div class="ov-bars">${zonesBars.map(r => `<div class="ov-row"><span title="${esc(r.aoi)}">${esc(r.aoi)}</span>${bar(Number(r.eau_ha) / maxHa, `${r.aoi}: ${fmt(Math.round(r.eau_ha))} ha flooded`)}<b>${fmt(Math.round(r.eau_ha))}</b></div>`).join("")}</div>
+        <div class="ov-cap">Hectares flooded in ${x.zones.length === 1 ? "the zone" : "the " + x.zones.length + " mapped zones"}${x.zones.length > zonesBars.length ? " (largest shown)" : ""}.</div>
+      </article>
+      <article class="ov-card">
+        <div class="ov-label"><span class="ov-badge">${svg("shield", 18)}</span>Vulnerable sites near the flood</div>
+        <div class="ov-value">${v.length}</div>
+        <div class="ov-chips">${vTypes.length ? vTypes.map(([t, n]) => `<span class="ov-chip" title="${esc(typeText(t, n))}">${svg(SITE_ICON[t] || "pin", 16)}<b>${n}</b> ${esc(n === 1 ? (SINGULAR[t] || t) : (TYPE_LABEL[t] || t))}</span>`).join("") : '<span class="muted">None within ' + NEAR + ' m</span>'}</div>
+        <div class="ov-cap">Within ${NEAR} m of the flood${vIn ? `, ${vIn} inside it` : ", none inside it"}.</div>
+      </article>
     </div>
-    <div class="note"><b>What these numbers are not.</b> They count what was <i>inside</i> the observed flood. They are not damage figures: the challenge data has no damage assessment. They cover only the mapped zones on the day of the satellite pass, so they are minimums. A commune with little data is shown in grey, not as safe, and a commune with no flood shown may still have been flooded: satellite maps can miss floods in narrow valleys and towns, so check against local sources.</div>
-    <h2>How to use this tool</h2>
-    <div class="steps">
-      <a href="#map"><b>1. Look at the map</b>See which communes were most affected. Click one for a summary.</a>
-      <a href="#region"><b>2. Find a region</b>Search any commune of the three countries: its flood exposure, what was in the 2021 flood, what to tell residents, and the nearest communes with lower exposure.</a>
-      <a href="#priority"><b>3. Use the priority list</b>The communes ranked by residents in the flood. Download it as a spreadsheet.</a>
-      <a href="#sites"><b>4. Check sites near the flood</b>Schools, hospitals, care homes and other sites in or next to the flood.</a>
-      <a href="#route"><b>5. Plan a route</b>Drop a pin and see the roads to the nearest shelters, planned to avoid the water in our data.</a>
-    </div>
-    ${top.length ? `<h2>Where to look first in ${esc(N)}</h2><p>${top.map(c => `<a href="#region/${c.lau_id}"><b>${esc(nm(c))}</b></a> (about ${approx(c.pop_exposed)} residents, ${pctText(c.per1000)})`).join(", ")}.</p>` : ""}
-    <p class="muted">Use the country buttons above to switch to ${esc(others)}. Layers, tiers and depth maps: <a href="#advanced">Advanced</a>. Sources, definitions and limits: <a href="#about">About</a>.</p>`;
+    <div class="ov-note">${svg("alert", 22)}<div><b>What these numbers are not.</b> They count what was <i>inside</i> the observed flood. They are not damage figures: the challenge data has no damage assessment. They cover only the mapped zones on the day of the satellite pass, so they are minimums. A commune with little data is shown in grey, not as safe, and a commune with no flood shown may still have been flooded: satellite maps can miss floods in narrow valleys and towns, so check against local sources.</div></div>
+    <h2 class="ov-h2">How to use this tool</h2>
+    <div class="ov-steps">${steps.map(([href, ic, t, d], i) => `<a href="${href}" class="ov-step"><span class="ov-num">${i + 1}</span><span class="ov-ico">${svg(ic, 22)}</span><span class="ov-st"><b>${t}</b>${d}</span><span class="ov-go">${svg("arrow", 18)}</span></a>`).join("")}</div>
+    ${top.length ? `<h2 class="ov-h2">Where to look first in ${esc(N)}</h2>
+      <div class="ov-top">${top.map(c => `<a href="#region/${c.lau_id}" class="ov-card ov-comm"><b>${esc(nm(c))}</b><span class="ov-value ov-m">about ${approx(c.pop_exposed)}</span><span class="muted">residents &middot; ${pctText(c.per1000)}</span>${bar(c.pop_exposed / top[0].pop_exposed, `${nm(c)}: about ${approx(c.pop_exposed)} residents`)}${badgeC(c)}</a>`).join("")}</div>` : ""}
+    <p class="muted" style="margin-top:22px">Use the country buttons above to switch to ${esc(others)}. Layers, tiers and depth maps: <a href="#advanced">Advanced</a>. Sources, definitions and limits: <a href="#about">About</a>.</p>`;
 }
 
 // ---------- Map ----------
@@ -175,10 +254,11 @@ function initMap() {
     mFor = CTRY;
     document.getElementById("mapIntro").textContent = `${NAMES[CTRY]}: ${x.zones.length === 1 ? "the zone" : "the " + x.zones.length + " zones"} mapped by satellite (${x.zones.length <= 3 ? x.zones.join(", ") : x.zones.slice(0, 3).join(", ") + " and others"}). Click a commune on the map.`;
     const present = TIER_ORD.filter(k => x.comm.some(c => c.tier === k));
-    document.getElementById("legendMain").innerHTML = present.map(k => `<div style="margin:3px 0"><span class="sw" style="background:${D.tiers[k].color}"></span>${PLAIN[k]} <span class="muted">(${x.comm.filter(c => c.tier === k).length})</span></div>`).join("") +
-      `<div class="muted" style="font-size:12px;margin-top:6px">Priority compares communes across the three countries together${x.hasHigh ? "." : `, so no commune in ${esc(NAMES[CTRY])} reaches "highest priority".`}</div>`;
-    document.getElementById("topList").innerHTML = x.comm.filter(c => c.pop_exposed > 0).sort((a, b) => b.pop_exposed - a.pop_exposed).slice(0, 10).map(c =>
-      `<li style="margin:5px 0"><a href="#region/${c.lau_id}"><b>${esc(nm(c))}</b></a><br><span class="muted">about ${approx(c.pop_exposed)} residents (${pctText(c.per1000)})</span> ${badgeC(c)}</li>`).join("");
+    document.getElementById("legendMain").innerHTML = present.map(k => `<div class="lg-row"><span class="sw" style="background:${D.tiers[k].color}"></span><span>${PLAIN[k]}</span> <span class="muted">(${x.comm.filter(c => c.tier === k).length})</span></div>`).join("") +
+      `<div class="muted" style="font-size:12px;margin-top:8px">Priority compares communes across the three countries together${x.hasHigh ? "." : `, so no commune in ${esc(NAMES[CTRY])} reaches "highest priority".`}</div>`;
+    const top10 = x.comm.filter(c => c.pop_exposed > 0).sort((a, b) => b.pop_exposed - a.pop_exposed).slice(0, 10);
+    document.getElementById("topList").innerHTML = top10.map((c, i) =>
+      `<li><span class="rk">${i + 1}</span><a href="#region/${c.lau_id}">${esc(nm(c))}</a><span class="tl-meta"><span class="muted">about ${approx(c.pop_exposed)} residents (${pctText(c.per1000)})</span> ${badgeC(c)}</span>${bar(c.pop_exposed / top10[0].pop_exposed, `${nm(c)}: about ${approx(c.pop_exposed)} residents`).replace('class="mbar"', 'class="mbar thin"')}</li>`).join("");
     mMain.fitBounds(x.bounds);
     syncLayers();
   }
@@ -216,6 +296,38 @@ const matches = t => { const qs = forms(t.trim()).filter(Boolean); if (!qs.lengt
 qEl.addEventListener("input", () => { const m = matches(qEl.value); resEl.hidden = !qEl.value.trim();
   resEl.innerHTML = m.length ? m.map(p => `<li><a href="#region/${p.id}"><span>${esc(nm(p))} <span class="muted">${p.cc.toUpperCase()}</span></span><span>${vbadge(p)}</span></a></li>`).join("")
     : `<li><a class="muted" style="pointer-events:none">No commune found in Belgium, Germany or the Netherlands. Try the local spelling.</a></li>`; });
+// ---------- Browse A-Z: country chips, a letter bar, the communes of one letter (state kept across tab switches; the address is not changed) ----------
+const AZ_LETTERS = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"];
+const azKey = name => { const ch = norm(name)[0] || ""; return /[a-z]/.test(ch) ? ch.toUpperCase() : "#"; };   // diacritics removed (Ä -> A, É -> E); anything else, e.g. 's-Hertogenbosch, goes under #
+let AZ = null, azC = null, azL = null;   // azC: null = follow the selected country; azL: null = first letter with communes
+function azIndex() {
+  if (AZ) return AZ;
+  AZ = { all: {} }; CODES.forEach(cc => { AZ[cc] = {}; });
+  [...ALLPLACES].sort((a, b) => norm(nm(a)).localeCompare(norm(nm(b)))).forEach(p => {
+    const k = azKey(p.name); (AZ[p.cc][k] = AZ[p.cc][k] || []).push(p); (AZ.all[k] = AZ.all[k] || []).push(p);
+  });
+  return AZ;
+}
+const VCOL = v => VERDICT[v].color;
+function renderAZ() {
+  const box = document.getElementById("azBody"); if (!box || !document.getElementById("azBox").open) return;
+  const ix = azIndex(), c = azC || CTRY, set = ix[c], letter = azL && (set[azL] || []).length ? azL : AZ_LETTERS.find(l => (set[l] || []).length);
+  const list = set[letter] || [], all = c === "all";
+  box.innerHTML = `<div class="az-row" role="group" aria-label="Country">${["all", ...CODES].map(k => `<button type="button" class="chip" data-azc="${k}" aria-pressed="${k === c}">${k === "all" ? "All" : NAMES[k]}</button>`).join("")}</div>
+    <div class="az-letters" role="group" aria-label="First letter">${AZ_LETTERS.map(l => { const n = (set[l] || []).length;
+      return `<button type="button" data-azl="${l === "#" ? "%23" : l}" aria-pressed="${l === letter}" ${n ? "" : "disabled"} title="${n ? fmt(n) + (n === 1 ? " commune" : " communes") : "No commune"}" aria-label="${l === "#" ? "Other characters" : l}: ${fmt(n)} ${n === 1 ? "commune" : "communes"}">${l}</button>`; }).join("")}</div>
+    <div class="az-meta"><span><b>${fmt(list.length)}</b> ${list.length === 1 ? "commune" : "communes"} under ${letter === "#" ? "other characters" : letter}${all ? "" : " in " + esc(NAMES[c])}</span>
+      <span>Flood exposure (model): ${["higher", "some", "lower"].map(v => `<span style="margin-right:8px"><i style="background:${VCOL(v)}"></i>${VERDICT[v].label.split(" ")[0]}</span>`).join("")}</span></div>
+    <div class="az-grid">${list.map(p => { const v = verdict(p); return `<a href="#region/${p.id}" title="${esc(nm(p))}: ${VERDICT[v].label}"><i class="az-d" style="background:${VCOL(v)}"></i><span>${esc(nm(p))}</span>${all ? `<small>${p.cc.toUpperCase()}</small>` : ""}</a>`; }).join("")}</div>`;
+}
+document.getElementById("azBody").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b || b.disabled) return;
+  if (b.dataset.azc) { azC = b.dataset.azc; azL = null; } else if (b.dataset.azl) azL = decodeURIComponent(b.dataset.azl);
+  const sel = b.dataset.azc ? `[data-azc="${b.dataset.azc}"]` : `[data-azl="${b.dataset.azl}"]`;
+  renderAZ(); const f = document.querySelector("#azBody " + sel); if (f) f.focus();   // keep the keyboard focus on the pressed button
+});
+document.getElementById("azBox").addEventListener("toggle", renderAZ);
+qEl.addEventListener("input", () => { document.getElementById("azBox").hidden = !!qEl.value.trim() && !resEl.hidden; });   // while typing, the search results replace the browse list
 qEl.addEventListener("keydown", e => { if (e.key === "Enter") { const m = matches(qEl.value); if (m[0]) location.hash = "#region/" + m[0].id; } });
 
 function stayHtml(p) {
@@ -285,9 +397,11 @@ function showRegion(id) {
   if (!p) {
     const top = CT[CTRY].comm.filter(x => x.pop_exposed > 0).sort((a, b) => b.pop_exposed - a.pop_exposed).slice(0, 6);
     view.innerHTML = `<p class="muted" style="margin-top:14px">Not sure where to start? Try one of these (${esc(NAMES[CTRY])}):</p><p>${top.map(x => `<a class="chip" href="#region/${x.lau_id}">${esc(nm(x))}</a>`).join("")}</p>`;
-    box.hidden = true; return;
+    box.hidden = true; document.getElementById("azBox").hidden = !!qEl.value.trim() && !resEl.hidden;
+    const az = document.getElementById("azBox"); if (!az.open) az.open = true; else renderAZ(); return;   // opening fires "toggle", which renders
   }
   qEl.value = nm(p); resEl.hidden = true;
+  const az = document.getElementById("azBox"); az.hidden = false; az.open = false;   // a commune is open: the browse list folds away above it
   const x = CT[p.cc];
   view.innerHTML = `<div class="rcard">${stayHtml(p)}</div>` + (p.c ? regionHtml(p.c) : unmappedHtml(p));
   box.hidden = false;  // the map needs a visible container before it is created
@@ -296,7 +410,7 @@ function showRegion(id) {
   floodLayer(p.cc).addTo(regGroup);
   let bounds;
   if (p.c) {
-    const outline = L.geoJSON({ type: "Feature", geometry: p.c.geometry }, { style: { color: "#111", weight: 3, fill: false }, interactive: false }).addTo(regGroup);
+    const outline = themed(L.geoJSON({ type: "Feature", geometry: p.c.geometry }, { style: { color: "#111", weight: 3, fill: false }, interactive: false }), t => ({ color: t === "dark" ? "#f1f3f5" : "#111" })).addTo(regGroup);
     const [bx0, by0, bx1, by1] = bboxOf(p.c.geometry);
     x.C.buildings.features.forEach(f => { const [lx, ly] = f.geometry.coordinates; if (lx >= bx0 && lx <= bx1 && ly >= by0 && ly <= by1 && inGeom([lx, ly], p.c.geometry)) L.circleMarker([ly, lx], { radius: 3, color: "#d9480f", weight: 1, fillOpacity: 0.8, interactive: false }).addTo(regGroup); });
     x.bes.filter(s => s.lau_id === id).forEach(s => siteMarker(s).addTo(regGroup));
@@ -322,11 +436,11 @@ function renderPriority() {
   const x = X(), rows = prRows();
   document.getElementById("prLead").textContent = `${NAMES[CTRY]}: communes in the mapped zones, ranked by the number of residents who lived in the flooded area.`;
   document.getElementById("prNote").textContent = `Priority levels compare communes across Belgium, Germany and the Netherlands together, so they are relative, not official limits.${x.hasHigh ? "" : ` In ${NAMES[CTRY]} no commune reaches "highest priority" because the mapped zones are small compared with the largest floods.`} Click a row to open the commune.`;
-  document.getElementById("prTable").innerHTML = `<table><thead><tr><th>#</th><th>Commune</th><th>Priority</th><th class="n">Residents in the flood</th><th class="n">Share of residents</th>
+  document.getElementById("prTable").innerHTML = `<div class="tbl-wrap"><table class="pr-table"><thead><tr><th>#</th><th>Commune</th><th>Priority</th><th class="n">Residents in the flood</th><th class="n">Share of residents</th>
     <th class="n">Buildings near the flood</th><th class="n">Vulnerable sites near the flood</th><th class="n">Area mapped</th></tr></thead><tbody>` +
     rows.map((c, i) => `<tr class="click" data-id="${c.lau_id}"><td>${i + 1}</td><td><a href="#region/${c.lau_id}">${esc(nm(c))}</a></td><td>${badgeC(c)}</td>
       <td class="n">${c.pop_exposed > 0 ? approx(c.pop_exposed) : "-"}</td><td class="n">${c.pop_exposed > 0 ? pctText(c.per1000) : "-"}</td><td class="n">${fmt(c.buildings)}</td>
-      <td class="n">${sitesOf(c.lau_id) ? nearCount(c.lau_id, "vulnerable") : "-"}</td><td class="n">${fmt(c.coverage_pct)}%</td></tr>`).join("") + `</tbody></table>` +
+      <td class="n">${sitesOf(c.lau_id) ? nearCount(c.lau_id, "vulnerable") : "-"}</td><td class="n">${fmt(c.coverage_pct)}%</td></tr>`).join("") + `</tbody></table></div>` +
     `<p class="muted" style="font-size:13px">${rows.length} communes shown.</p>`;
 }
 document.getElementById("prTable").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr && e.target.tagName !== "A") location.hash = "#region/" + tr.dataset.id; });
@@ -347,8 +461,8 @@ function renderSites() {
   const list = x.bes.filter(s => stOn.has(s.categorie) && (!q || norm((s.name || "") + " " + (s.commune || "") + " " + (SINGULAR[s.type] || s.type)).includes(q)))
     .sort((a, b) => CAT_ORD.indexOf(a.categorie) - CAT_ORD.indexOf(b.categorie) || (a.position === POS_IN ? 0 : 1) - (b.position === POS_IN ? 0 : 1) || (a.name || "~").localeCompare(b.name || "~"));
   document.getElementById("stCount").textContent = `${NAMES[CTRY]}: ${list.length} of ${x.bes.length} sites in or within ${NEAR} m of the flood (${x.bes.filter(s => s.position === POS_IN).length} inside it).`;
-  document.getElementById("stTable").innerHTML = `<table><thead><tr><th>Site</th><th>Where</th></tr></thead><tbody>` + list.slice(0, 400).map((s, i) =>
-    `<tr class="click" data-i="${i}"><td><span class="sw" style="background:${OSM_COLORS[s.categorie]}"></span><b>${esc(s.name || "(no name in OpenStreetMap)")}</b><br><span class="muted">${SINGULAR[s.type] || s.type}${s.commune ? ", " + esc(s.commune) : ""}</span></td><td>${posText(s.position)}</td></tr>`).join("") + `</tbody></table>` +
+  document.getElementById("stTable").innerHTML = `<table class="site-tbl"><thead><tr><th>Site</th><th>Where</th></tr></thead><tbody>` + list.slice(0, 400).map((s, i) =>
+    `<tr class="click" data-i="${i}"><td><span class="sw" style="background:${OSM_COLORS[s.categorie]}"></span><b>${esc(s.name || "(no name in OpenStreetMap)")}</b><br><span class="muted">${SINGULAR[s.type] || s.type}${s.commune ? ", " + esc(s.commune) : ""}</span></td><td><span class="pos${s.position === POS_IN ? " in" : ""}">${posText(s.position)}</span></td></tr>`).join("") + `</tbody></table>` +
     (list.length > 400 ? `<p class="muted" style="font-size:13px">The first 400 are listed; use the filters to narrow down.</p>` : "");
   renderSites.list = list;
   if (siteLayer) { siteLayer.clearLayers(); list.forEach(s => siteMarker(s).addTo(siteLayer)); }
@@ -366,7 +480,7 @@ function initSites() {
   if (sitesFor !== CTRY) {
     if (sitesFlood) mSites.removeLayer(sitesFlood);
     sitesFor = CTRY; sitesFlood = floodLayer(CTRY).addTo(mSites);
-    document.getElementById("stChips").innerHTML = CAT_ORD.map(k => `<button class="chip" type="button" data-k="${k}" aria-pressed="${stOn.has(k)}"><span class="sw" style="background:${OSM_COLORS[k]}"></span>${CATP[k]} (${x.bes.filter(s => s.categorie === k).length})</button>`).join("");
+    document.getElementById("stChips").innerHTML = CAT_ORD.map(k => `<button class="chip" type="button" data-k="${k}" aria-pressed="${stOn.has(k)}"><span class="sw" style="background:${OSM_COLORS[k]}"></span>${CATP[k]} <span class="n">${x.bes.filter(s => s.categorie === k).length}</span></button>`).join("");
     mSites.fitBounds(x.bounds);
     renderSites();
   }
@@ -374,15 +488,22 @@ function initSites() {
 }
 
 // ---------- About ----------
+const AB_SECS = [["ab-shows", "map", "What it shows"], ["ab-src", "list", "Where the numbers come from"], ["ab-words", "info", "What the words mean"], ["ab-not", "alert", "What it does not show"]];
+const abH = id => { const [, ic, t] = AB_SECS.find(x => x[0] === id); return `<span class="ov-badge">${svg(ic, 18)}</span>${t}`; };
+// the table of contents scrolls inside the page: it does not change the address, so the router (#about) is untouched
+document.getElementById("aboutBody").addEventListener("click", e => { const b = e.target.closest("[data-sec]"); if (!b) return;
+  const el = document.getElementById(b.dataset.sec), still = matchMedia("(prefers-reduced-motion: reduce)").matches; if (el) el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" }); });
 function renderAbout() {
   const R = D.rules, srcs = ["bealert", "bbk", "nlalert"].filter(k => D.sources[k]).map(k => `<a href="${D.sources[k].url}" target="_blank" rel="noopener">${esc(D.sources[k].name.split(":")[0])}</a>`).join(", ");
   document.getElementById("aboutBody").innerHTML = `
     <h1>About this tool</h1>
     <p class="lead">What it shows, where the numbers come from, and what it cannot tell you.</p>
-    <h2>What it shows</h2>
+    <nav class="ab-toc" aria-label="On this page">${AB_SECS.map(([id, ic, t]) => `<button type="button" class="chip" data-sec="${id}">${svg(ic, 16)}${t}</button>`).join("")}</nav>
+    <section class="pcard ab-sec" id="ab-shows"><h2>${abH("ab-shows")}</h2>
     <p>For the zones of Belgium, Germany and the Netherlands that satellites mapped in July 2021, it shows how many residents, buildings and important sites were inside the flood, commune by commune. It also suggests where to concentrate preparedness and alert messages, and gives the modelled river-flood exposure of every commune.</p>
-    <h2>Where the numbers come from</h2>
-    <table><thead><tr><th>What</th><th>Source</th><th>In plain words</th></tr></thead><tbody>
+    </section>
+    <section class="pcard ab-sec" id="ab-src"><h2>${abH("ab-src")}</h2>
+    <div class="tbl-wrap"><table><thead><tr><th>What</th><th>Source</th><th>In plain words</th></tr></thead><tbody>
       <tr><td>The flood</td><td>Copernicus Emergency Management Service, satellite mapping (EMSR518 Belgium, EMSR517 Germany, EMSR520 Netherlands)</td><td>Flood outlines drawn by analysts from satellite images, published 15 to 18 July 2021. A snapshot, not the peak. Only requested areas were mapped.</td></tr>
       <tr><td>Residents</td><td>GHS-POP 2020 (EU Joint Research Centre)</td><td>A modelled estimate of people per 1 km square. Residents only, no commuters or visitors.</td></tr>
       <tr><td>Buildings</td><td>GHS-OBAT (EU Joint Research Centre), built on Overture Maps</td><td>One point per building known to the map. Not a complete register: counts are minimums.</td></tr>
@@ -390,8 +511,8 @@ function renderAbout() {
       <tr><td>Sites (schools, hospitals, ...)</td><td>OpenStreetMap, state on ${esc(OSM_DATE)} (external source)</td><td>Volunteer-made map. Incomplete: a site may exist and not be listed.</td></tr>
       <tr><td>Communes, names, official population</td><td>Eurostat GISCO, 2023 (external source)</td><td>Official commune boundaries. Names are in the local language; we add some common alternative names in the search.</td></tr>
       <tr><td>Advice to residents</td><td>Official pages: ${srcs}, Rijksoverheid, Centre de Crise (external sources)</td><td>Only what these pages say, shown with its source. Not every country has every kind of advice.</td></tr>
-    </tbody></table>
-    <h2>What the words mean</h2>
+    </tbody></table></div></section>
+    <section class="pcard ab-sec" id="ab-words"><h2>${abH("ab-words")}</h2>
     <ul>
       <li><b>Residents in the flooded area:</b> residents of the 1 km squares that the flood covers, counted in proportion to the share of each square that was flooded. An estimate, rounded.</li>
       <li><b>Buildings in or near the flood:</b> buildings inside the flood outline or within ${BUF} m of it (a building at the edge may sit just outside the line).</li>
@@ -401,16 +522,16 @@ function renderAbout() {
       <li><b>Flood exposure (higher, some, lower) in "Find a region":</b> from a flood <i>model</i> (EFAS), not from the 2021 map. It is the share of residents living inside the zone of a 10-, 100- or 500-year river flood. <i>Higher</i>: at least ${D.cfg.hazard_higher_pct}% of residents in the 100-year zone, or a medium or higher 2021 priority. <i>Lower</i>: under ${D.cfg.hazard_lower_pct}% in the 500-year zone and no flood detected in 2021. Everything else is <i>some</i>. We never say "safe": the model leaves out small rivers and heavy-rain flooding. These cut-offs are our draft choices.</li>
       <li><b>My route:</b> drop a pin and the page finds the nearest shelters, reception places or hospitals by travel time, on foot or by car, using the roads of OpenStreetMap (state of ${esc(OSM_DATE)}). <b>The team's principle:</b> the flood data is the safe side. A road that is not in our water data is assumed passable even in a flood this large, and roads inside it are avoided: they get a heavy cost (the 2021 observed flood x${D.cfg.route_pen_observed}, the modelled 100-year zone x${D.cfg.route_pen_rp100}, the 500-year zone x${D.cfg.route_pen_rp500}), so the page crosses them only when there is no other way, and then says how much water it still crosses. A shelter inside the water data is only suggested when nothing else is reachable. The calculation runs in your browser: your pin is not sent anywhere. Routes are planned only around the mapped areas (the dashed outlines on the map).</li>
       <li><b>Nearest communes with lower exposure:</b> the three closest communes of the same country (centre to centre) with lower exposure and at least ${fmt(D.cfg.candidate_min_pop)} residents. A planning aid only: the authorities decide where people go.</li>
-    </ul>
-    <h2>What it does not show</h2>
+    </ul></section>
+    <section class="pcard ab-sec" id="ab-not"><h2>${abH("ab-not")}</h2>
     <ul><li>Whether a road is really passable: the routes assume that roads outside our water data stay open in a flood. Real floods differ from 2021 and from the model, roads can be closed or blocked, and the small rivers and heavy-rain floods that the model leaves out can cut roads we show as free. Shelters are places listed in OpenStreetMap: we do not know if they are open, or how many people they can take, and street names are not given. Never drive through flooded roads.</li>
       <li>Live conditions: this is not a warning system. It cannot say whether a place is safe <i>now</i>, whether roads are open, or whether a reception place has room. In a real flood, follow ${ALERT.be}, ${ALERT.de} or ${ALERT.nl}, and the authorities.</li>
       <li>Damage, injuries or deaths: the challenge data has no damage assessment.</li>
       <li>How deep the 2021 water was, or its peak: the satellite maps show the extent on one day.</li>
       <li>Anything outside the mapped zones, which is blank or grey, not safe.</li>
       <li>Every flooded place: the satellite maps can miss flooding in narrow valleys and built-up areas. Some communes known to have been badly hit in July 2021 show no flood here, so always check local sources.</li>
-      <li>Priority levels and the "draft message focus" are our proposals, to validate with the responsible authority.</li></ul>
-    <p class="muted">The full technical report is the file <code>docs/flood_data_report.html</code> in the project. Map background: Esri World Light Gray (new tabs and Advanced). Sites: &copy; OpenStreetMap contributors.</p>`;
+      <li>Priority levels and the "draft message focus" are our proposals, to validate with the responsible authority.</li></ul></section>
+    <p class="muted">The full technical report is the file <code>docs/flood_data_report.html</code> in the project. Map background: Esri World Light Gray or World Dark Gray, following the light or dark theme (all tabs). Sites: &copy; OpenStreetMap contributors.</p>`;
 }
 
 // ---------- Official flood zones (Germany only): 2021 flood vs the zones the authorities map ----------
@@ -425,30 +546,33 @@ function offCommunePopup(c) {
 }
 function offPanelHtml(U) {
   const pct = (a, b) => b > 0 ? Math.round(100 * a / b) + "%" : "-";
-  const rows = U.land.map(r => `<tr${r.land === "Total" ? ' style="font-weight:700"' : ""}><td>${esc(r.land)}</td><td>${fmt(r.flood_ha)}</td><td>${fmt(r.gap_ha)} <span class="muted">(${pct(r.gap_ha, r.flood_ha)})</span></td>
-      <td>${fmt(r.bat_flood)}</td><td>${fmt(r.bat_gap)}</td><td>${approx(r.pop_flood)}</td><td>${approx(r.pop_gap)}</td></tr>`).join("");
+  const st = (v, l) => `<div class="off-stat"><b>${v}</b><span>${l}</span></div>`;
+  const tiles = U.land.map(r => `<div class="pcard off-card${r.land === "Total" ? " total" : ""}"><h4>${svg(r.land === "Total" ? "layers" : "map", 18)}${esc(r.land)}</h4><div class="off-stats">
+      ${st(fmt(r.flood_ha), "2021 flood (ha)")}${st(`${fmt(r.gap_ha)} <small class="muted" style="font-size:13px;font-weight:500">(${pct(r.gap_ha, r.flood_ha)})</small>`, "of which outside the official zone")}
+      <div class="off-gap">${bar(r.flood_ha > 0 ? r.gap_ha / r.flood_ha : 0, `${r.land}: ${pct(r.gap_ha, r.flood_ha)} of the 2021 flood (mapped) lies outside the official zone`)}</div>
+      ${st(fmt(r.bat_flood), "buildings in the flood")}${st(fmt(r.bat_gap), "of which outside")}${st(approx(r.pop_flood), "residents in the flood*")}${st(approx(r.pop_gap), "of which outside*")}</div></div>`).join("");
   const sw = (bg, extra = "") => `<span class="sw" style="background:${bg};${extra}"></span>`;
   return `<h2>2021 flood vs the official flood zones</h2>
     <p class="muted" style="margin:0 0 8px">Germany only, inside the areas mapped by satellite. Red hatching is where the water went in 2021 although the authorities did not map a legal flood zone there.</p>
-    <div>${sw("#3b7dd8aa")} Official flood zone (legally set or provisionally secured)</div>
-    <div>${sw("#bcd4f5", "border-style:dashed")} Flood-risk area outside the legal zones (not a legal zone)</div>
-    <div>${sw("transparent", "border:2px solid #7b2cbf")} Flooded in July 2021 (satellite maps)</div>
-    <div>${sw("repeating-linear-gradient(45deg,#d6336c 0 2px,#fff 2px 5px)")} <b>Flooded in 2021, outside the official zone</b></div>
-    <details style="margin:8px 0"><summary><b>Layers</b></summary>
+    <div class="pcard"><div class="off-legend">
+    <div>${sw("#3b7dd8aa")} <span>Official flood zone (legally set or provisionally secured)</span></div>
+    <div>${sw("#bcd4f5", "border-style:dashed")} <span>Flood-risk area outside the legal zones (not a legal zone)</span></div>
+    <div>${sw("transparent", "border:2px solid var(--off-flood)")} <span>Flooded in July 2021 (satellite maps)</span></div>
+    <div>${sw("repeating-linear-gradient(45deg,#d6336c 0 2px,#fff 2px 5px)")} <span><b>Flooded in 2021, outside the official zone</b></span></div></div>
+    <details style="margin:8px 0 0;border-top:1px solid var(--line);padding-top:4px"><summary><b>Layers</b></summary>
       ${[["legal", "Official zone", 1], ["risk", "Flood-risk area (not legal)", 1], ["flood", "2021 flood outline", 1], ["gap", "Flooded in 2021, outside the official zone", 1], ["com", "Communes (click for numbers)", 1]].map(([k, l, on]) =>
-        `<label style="display:block;margin:5px 0"><input type="checkbox" data-offl="${k}" ${on ? "checked" : ""}> ${l}</label>`).join("")}</details>
+        `<label class="check"><input type="checkbox" data-offl="${k}" ${on ? "checked" : ""}> ${l}</label>`).join("")}</details></div>
     <h3>Key numbers per Land</h3>
-    <div style="overflow:auto;flex-shrink:0"><table style="font-size:12.5px;border-collapse:collapse;width:100%">
-      <tr><th></th><th>2021 flood (ha)</th><th>of which outside the official zone</th><th>buildings in the flood</th><th>of which outside</th><th>residents in the flood*</th><th>of which outside*</th></tr>${rows}</table></div>
+    <div class="off-grid">${tiles}</div>
     <p class="muted" style="font-size:12px;margin:4px 0">* estimates, rounded. NRW = North Rhine-Westphalia, RLP = Rhineland-Palatinate.</p>
     <h3>Read this before using the numbers</h3>
-    <ul style="padding-left:18px;font-size:13px;margin:0">
-      <li><b>Only mapped areas.</b> Where Copernicus did not map the flood, we do not know what flooded: absence of red does not mean dry. Satellite maps also miss floods in narrow valleys and towns.</li>
-      <li><b>Not the same status everywhere.</b> The Länder do not label zones the same way. "Official zone" here means "legally set" or "provisionally secured" (RLP and NRW). The flood-risk areas outside the legal zones are shown apart and are not counted as official.</li>
-      <li><b>Residents are an estimate.</b> Population comes from GHS-POP 2020, cells of about 1 km, spread evenly inside each cell. Do not read it as a count of people, and small areas are rough.</li>
-      <li><b>Buildings</b> are GHS-OBAT building points (2020) that lie inside each shape.</li>
-      <li><b>A gap is not an error by the authorities.</b> Zones are drawn from a 100-year flood model and 2021 was larger in places. The gap shows where the official map and 2021 differ, to be checked locally.</li>
-    </ul>
+    <div class="off-notes">
+      <div class="callout warn">${svg("alert", 18)}<div><b>Only mapped areas.</b> Where Copernicus did not map the flood, we do not know what flooded: absence of red does not mean dry. Satellite maps also miss floods in narrow valleys and towns.</div></div>
+      <div class="callout">${svg("info", 18)}<div><b>Not the same status everywhere.</b> The Länder do not label zones the same way. "Official zone" here means "legally set" or "provisionally secured" (RLP and NRW). The flood-risk areas outside the legal zones are shown apart and are not counted as official.</div></div>
+      <div class="callout">${svg("info", 18)}<div><b>Residents are an estimate.</b> Population comes from GHS-POP 2020, cells of about 1 km, spread evenly inside each cell. Do not read it as a count of people, and small areas are rough.</div></div>
+      <div class="callout">${svg("info", 18)}<div><b>Buildings</b> are GHS-OBAT building points (2020) that lie inside each shape.</div></div>
+      <div class="callout">${svg("info", 18)}<div><b>A gap is not an error by the authorities.</b> Zones are drawn from a 100-year flood model and 2021 was larger in places. The gap shows where the official map and 2021 differ, to be checked locally.</div></div>
+    </div>
     <h3>Sources</h3>
     <p style="font-size:12.5px;margin:0">Official zones: Rhineland-Palatinate (geoportal.rlp.de, CC BY 4.0, Wasserwirtschaftsverwaltung RLP) and North Rhine-Westphalia (opengeodata.nrw.de, LANUK, Datenlizenz Deutschland Zero 2.0), downloaded ${esc(U.meta.date)}. 2021 flood: Copernicus EMS rapid mapping. Buildings: GHS-OBAT. Residents: GHS-POP 2020. Commune boundaries: Eurostat GISCO LAU 2023. Gap and exposure numbers: calculations by the team, not an official figure.</p>`;
 }
@@ -462,9 +586,9 @@ function initOfficial() {
     svg._container.insertAdjacentHTML("afterbegin", `<defs><pattern id="gapHatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#fff" fill-opacity="0.35"/><rect width="2.5" height="6" fill="#d6336c"/></pattern></defs>`);
     L_.legal = L.geoJSON(U.shapes.legal, { style: { color: "#2b62b8", weight: 0.6, fillColor: "#3b7dd8", fillOpacity: 0.4 }, interactive: false });
     L_.risk = L.geoJSON(U.shapes.risk, { style: { color: "#7aa6e6", weight: 0.8, dashArray: "4 3", fillColor: "#bcd4f5", fillOpacity: 0.3 }, interactive: false });
-    L_.flood = L.geoJSON(U.shapes.flood, { style: { color: "#7b2cbf", weight: 1.6, fill: false }, interactive: false });
+    L_.flood = themed(L.geoJSON(U.shapes.flood, { style: { color: "#7b2cbf", weight: 1.6, fill: false }, interactive: false }), t => ({ color: t === "dark" ? "#c99bf2" : "#7b2cbf" }));
     L_.gap = L.geoJSON(U.shapes.gap, { renderer: svg, className: "gap-hatch", style: { color: "#d6336c", weight: 0.8, fillOpacity: 1 }, interactive: false });
-    L_.com = L.layerGroup(U.communes.map(c => L.geoJSON(c.geom, { style: { color: "#666", weight: 0.5, fillOpacity: 0, opacity: 0.6 } })
+    L_.com = L.layerGroup(U.communes.map(c => themed(L.geoJSON(c.geom, { style: { color: "#666", weight: 0.5, fillOpacity: 0, opacity: 0.6 } }), t => ({ color: t === "dark" ? "#9aa5b4" : "#666" }))
       .bindPopup(() => offCommunePopup(c)).bindTooltip(c.commune, { sticky: true })));
     document.getElementById("offPanel").innerHTML = offPanelHtml(U);
     document.getElementById("offPanel").addEventListener("change", e => {
@@ -485,14 +609,22 @@ function islandCard(r) {
   const vul = Object.entries(r.vulnerable).map(([k, n]) => `${n} ${k.replace(/_/g, " ")}`).join(", ");
   const names = a => a.length ? " (" + a.map(esc).join(", ") + ")" : "";
   const where = r.communes.map(c => `${esc(c.n)} ${c.pct}%`).join(", ");
-  return `<div class="rcard" data-isl="${r.cc}-${r.rank}" style="cursor:pointer;margin:8px 0">
-    <div><b>#${r.rank} ${esc(r.name)}</b> ${islBadge()}</div>
-    <div style="font-size:14px"><b>about ${approx(r.residents)} residents</b> cut off${r.communes.length > 1 ? ` <span class="muted">(${where})</span>` : ""}</div>
-    <div class="muted" style="font-size:13px">${r.hospital ? `Nearest hospital: ${esc(r.hospital.name || "(no name)")}, ${fmt(r.hospital.km, 1)} km away in a straight line, not reachable by road while the flooded roads are closed.` : "No hospital found in our data."}
-      Fire station inside: ${r.fire_n ? "yes" + names(r.fire) : "none found"}. Shelter inside: ${r.shelters_n ? r.shelters_n + names(r.shelters) : "none found"}.
-      ${vul ? `Vulnerable sites inside: ${esc(vul)}.` : ""} ${r.closed_links} road link${r.closed_links === 1 ? "" : "s"} closed by the flood; ${fmt(r.road_km, 1)} km of road stay open inside.</div>
-    ${r.gaps.length ? `<div style="font-size:13px;margin-top:4px"><b>Ranked here because:</b> ${r.gaps.map(esc).join(", ")}.</div>` : ""}
-    <div style="font-size:13px;margin-top:4px"><b>Proposed before the water arrives</b> (to validate with the responsible authority): pre-position medics, generators and boats${r.shelters_n ? "" : ", and open a shelter inside the island"}.</div>
+  const row = (ic, cls, html) => `<div class="isl-row ${cls}">${svg(ic, 16)}<span>${html}</span></div>`;
+  return `<div class="rcard isl-card lift" data-isl="${r.cc}-${r.rank}">
+    <span class="isl-rank">#${r.rank}</span>
+    <div style="min-width:0">
+    <div class="isl-head"><b>${esc(r.name)}</b> ${islBadge()}</div>
+    <div class="isl-big">about ${approx(r.residents)} <small>residents cut off</small></div>${r.communes.length > 1 ? `<div class="muted" style="font-size:13px">${where}</div>` : ""}
+    <div class="isl-rows">
+      ${row("cross", r.hospital ? "" : "none", r.hospital ? `Nearest hospital: ${esc(r.hospital.name || "(no name)")}, ${fmt(r.hospital.km, 1)} km away in a straight line, not reachable by road while the flooded roads are closed.` : "No hospital found in our data.")}
+      ${row("flame", r.fire_n ? "has" : "none", `Fire station inside: ${r.fire_n ? "yes" + names(r.fire) : "none found"}.`)}
+      ${row("bed", r.shelters_n ? "has" : "none", `Shelter inside: ${r.shelters_n ? r.shelters_n + names(r.shelters) : "none found"}.`)}
+      ${vul ? row("shield", "none", `Vulnerable sites inside: ${esc(vul)}.`) : ""}
+      ${row("road", "", `${r.closed_links} road link${r.closed_links === 1 ? "" : "s"} closed by the flood; ${fmt(r.road_km, 1)} km of road stay open inside.`)}
+    </div>
+    ${r.gaps.length ? `<div class="isl-why"><b>Ranked here because:</b> ${r.gaps.map(g => `<span class="ov-chip">${esc(g)}</span>`).join("")}</div>` : ""}
+    <div class="isl-prop"><b>Proposed before the water arrives</b> (to validate with the responsible authority): pre-position medics, generators and boats${r.shelters_n ? "" : ", and open a shelter inside the island"}.</div>
+    </div>
   </div>`;
 }
 function initIslands() {
@@ -513,8 +645,8 @@ function initIslands() {
   document.getElementById("islPanel").innerHTML = `
     <h2>Islands: areas the 2021 flood cuts off</h2>
     <p class="muted" style="margin:0 0 8px">We closed every car road that touches the observed 2021 flood, bridges included, and looked for groups of roads that no longer reach any hospital. Each group with enough residents is an island. Every island is a top priority; the list ranks them.</p>
-    <div class="note" style="margin:8px 0"><b>${esc(N)}:</b> ${list.length ? `${list.length} island${list.length === 1 ? "" : "s"} found, about ${approx(tot)} residents cut off.` : "no island found with the observed 2021 flood."} <b>This is not a complete list:</b> it only sees roads the satellite maps showed under water, and satellite maps miss floods (for example in Verviers, Pepinster or Trooz).</div>
-    <div><span style="margin-right:10px"><span class="sw" style="background:${ISL_COL}"></span>Island</span><span><span class="sw" style="background:#111"></span>road cut</span></div>
+    <div class="note" style="margin:12px 0"><b>${esc(N)}:</b> ${list.length ? `${list.length} island${list.length === 1 ? "" : "s"} found, about ${approx(tot)} residents cut off.` : "no island found with the observed 2021 flood."} <b>This is not a complete list:</b> it only sees roads the satellite maps showed under water, and satellite maps miss floods (for example in Verviers, Pepinster or Trooz).</div>
+    <div class="lg-row" style="margin:0 0 12px"><span class="sw" style="background:${ISL_COL}"></span><span style="margin-right:12px">Island</span><span class="sw" style="background:#111;box-shadow:0 0 0 1px #fff"></span><span>road cut</span></div>
     <div id="islList">${list.map(islandCard).join("")}</div>
     <h3>How to read this</h3>
     <ul style="padding-left:18px;font-size:13px;margin:0">
@@ -552,5 +684,6 @@ function route() {
   if (t !== "map" && t !== "sites" && t !== "route" && t !== "official" && t !== "islands" && t !== "live") window.scrollTo(0, 0);
 }
 renderAbout();
+alertsInit();   // app_alerts.js: alert strip under the banner on every tab, background watch if it was left on
 addEventListener("hashchange", route);
 route();

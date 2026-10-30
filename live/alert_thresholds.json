@@ -1,0 +1,11 @@
+{
+  "_readme": [
+    "Team-editable alert thresholds for the Alerts section of the Live water levels tab (embedded into the page by src/build_app.py; rebuild after editing).",
+    "Leave the list EMPTY unless a threshold has been validated with the responsible authority (water authority, civil protection, commune). Never derive a threshold from the July 2021 peaks or guess one.",
+    "Stations with no entry here and no thresholds published by the source show 'no alert thresholds' and never alert. Thresholds published by the source itself (today: LANUK NRW information levels) always win over an entry here.",
+    "One entry per station: {\"station_id\": \"L7150\", \"source\": \"wallonie_kiwis\", \"level1\": <number>, \"level2\": <number, higher than level1>, \"unit\": \"m\" or \"cm\", \"reference\": \"<copy the station's 'reference' text from live/stations.json exactly>\", \"origin\": \"team draft\", \"note\": \"who validated it and when\"}.",
+    "station_id and source must match live/stations.json. The unit and the reference must be those of the live value: if they differ, the page does not alert (it never converts units or datums).",
+    "level1 = 'stay away from the islands near this gauge'; level2 = 'consider leaving for a shelter outside our flood data'. Either may be null if only one level is known."
+  ],
+  "entries": []
+}

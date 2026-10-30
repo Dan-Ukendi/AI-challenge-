@@ -228,7 +228,7 @@ function liveRender() {
         html += `<div class="lv-row" data-k="${esc(k)}"><span class="lv-dot" style="background:${r ? liveColour(r) : "transparent"}"></span>
           <div><b>${esc(st.station_name)}</b> <span class="muted">${esc(st.river)}</span>${liveBadges(r, st)}<br>${val}
           ${when ? `<br><span style="font-size:12.5px">${when}</span>` : ""}
-          ${r && r.alert_level ? `<br><span style="font-size:12.5px">${liveAlertText(r.alert_level)}</span>` : ""}
+          ${r && r.alert_level ? `<br><span class="lv-lvl lv-l${r.alert_level.level}">${liveAlertText(r.alert_level)}</span>` : ""}
           <br><span class="muted" style="font-size:12px">${esc(LIVE_SRC[st.source].name)}</span></div></div>`;
       });
     });
@@ -236,7 +236,8 @@ function liveRender() {
   const vr = Object.values(LIVE.recs).filter(r => r.source === "vmm_kiwis");
   if (vr.length) html += `<h3 class="lv-country">Belgium: Flanders (optional)</h3><p class="muted" style="font-size:13px">${vr.length} gauges loaded from VMM, shown as small dots on the map only (click a dot). Not in our station catalogue: no commune matching was done.</p>`;
   document.getElementById("liveList").innerHTML = html;
-  // map: catalogue stations always shown; hollow grey when there is no value
+  // map: catalogue stations always shown; hollow grey when there is no value (no map yet when the alert watch refreshes before the tab was opened)
+  if (LIVE.layer) {
   LIVE.layer.clearLayers();
   LIVE_STATIONS.forEach(st => {
     const k = st.source + ":" + st.station_id, r = LIVE.recs[k];
@@ -247,7 +248,8 @@ function liveRender() {
   });
   if (vr.length && !LIVE.vmmLayer.getLayers().length) vr.forEach(r => L.circleMarker([r.lat, r.lon], { radius: 3, weight: 1, color: "#495057", fillColor: liveColour(r), fillOpacity: 0.8 })
     .bindPopup(() => livePopup(r, null)).addTo(LIVE.vmmLayer));
-  document.getElementById("liveUpdated").textContent = "Last refresh: " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " (automatic every " + LIVE_REFRESH_MIN + " min while this tab is open)";
+  }
+  document.getElementById("liveUpdated").textContent = "Last refresh: " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " (automatic every " + LIVE_REFRESH_MIN + " min while this tab is open" + (ALERTS.watch ? ", every " + AL_POLL_MIN + " min on any tab while \"Watch\" is on" : "") + ")";
 }
 async function liveRun(code, fn) {
   LIVE.status[code] = { state: "loading" };
@@ -265,11 +267,11 @@ async function liveRun(code, fn) {
   liveRender();
 }
 async function liveRefresh() {
-  if (LIVE.busy) return; LIVE.busy = true;
+  if (LIVE.busy) return; LIVE.busy = true; LIVE.last = Date.now();
   try {
     await Promise.allSettled([liveRun("wallonie_kiwis", liveWallonie), liveRun("pegelonline", livePegel),
       ...["rijkswaterstaat_ddapi20", "nrw_lanuv", "waterschap_limburg_open_data"].map(c => liveRun(c, () => liveProxy(c)))]);
-  } finally { LIVE.busy = false; }
+  } finally { LIVE.busy = false; alertsEvaluate(); }   // app_alerts.js: thresholds, strip, notifications
 }
 function initLive() {
   if (!LIVE.map) {
@@ -285,9 +287,10 @@ function initLive() {
       const m = LIVE.layer.getLayers().find(x => x._liveKey === row.dataset.k); if (!m) return;
       LIVE.map.setView(m.getLatLng(), Math.max(LIVE.map.getZoom(), 11)); m.openPopup();
     });
+    alertsSection();
     liveRender();
-    liveRefresh();
-    LIVE.timer = setInterval(() => { if (location.hash.slice(1).split("/")[0] === "live") liveRefresh(); }, LIVE_REFRESH_MIN * 6e4);
+    if (Date.now() - (LIVE.last || 0) > 6e4) liveRefresh();   // skipped if the alert watch has just refreshed
+    // automatic refresh every LIVE_REFRESH_MIN while this tab is open: one timer for the tab and the alert watch, in app_alerts.js (alTick)
   }
   setTimeout(() => LIVE.map.invalidateSize(), 0);
 }

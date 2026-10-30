@@ -32,5 +32,8 @@
   },
   "island_min_pop": 100,
   "island_high_pop": 300,
-  "island_urgent_pop": 1000
+  "island_urgent_pop": 1000,
+  "_alerts_note": "DRAFT keys for the Alerts section of the Live water levels tab, to validate: an island is 'near' a gauge within alert_island_radius_km (straight line, not necessarily on the same river); the live sources are checked every alert_poll_minutes while the page is open (never faster than 10).",
+  "alert_island_radius_km": 15,
+  "alert_poll_minutes": 10
 }

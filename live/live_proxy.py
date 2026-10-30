@@ -10,15 +10,25 @@ schema of the tab and answers with Access-Control-Allow-Origin: *.
 Safety: binds to 127.0.0.1 only, answers GET on the fixed paths above only (no URL parameter, no open relay),
 upstream URLs are hard-coded and whitelisted, every upstream call has a timeout, answers are cached 10-15 min.
 
+It also serves the in-app assistant (see live/ASSISTANT.md):
+  POST /chat              forwards one Messages API request. The key is read from the environment variable
+                          ANTHROPIC_API_KEY at request time and never reaches the page. Server-side limits:
+                          model, max_tokens, body size, tools, turns per session, requests per hour.
+  GET  /assistant/health  {"configured": true/false, "model": ..., "web_search": false}  (never the key)
+
 Run:  python live/live_proxy.py            (port 8765)
       python live/live_proxy.py --port 8766
 """
+import collections
+import os
+import re
 import argparse
 import io
 import json
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -278,18 +288,209 @@ def get(key):
             return 502, {"source": src["code"], "error": "the official service did not answer: " + msg}
 
 
+# ---------------- assistant: POST /chat (forwarding with server-side limits) ----------------
+# Every limit is enforced here, whatever the page sends. Nothing of a request or answer is logged.
+ASSISTANT_UPSTREAM_DEFAULT = "https://api.anthropic.com/v1/messages"
+# the tools the page defines (live/ASSISTANT.md); any other tool, or a server tool, is refused
+ASSISTANT_TOOLS = {"get_commune", "search_communes", "get_priority_areas", "get_islands", "get_official_zone_gap",
+                   "get_alerts", "get_live_levels", "get_dataset_limits", "render_chart"}
+ASSISTANT_KEYS = {"model", "max_tokens", "system", "tools", "messages"}   # top-level fields the page may send
+ALLOWED_ORIGIN = re.compile(r"^(null|https?://(localhost|127\.0\.0\.1)(:\d{1,5})?)$")
+SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def env_int(name, default, lo, hi):
+    try:
+        v = int(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        v = default
+    return max(lo, min(hi, v))
+
+
+def assistant_cfg():
+    """Read at request time, so a change of the environment needs no code change (the key is never stored)."""
+    models = [m.strip() for m in os.environ.get("ASSISTANT_MODEL", "claude-sonnet-5-5").split(",") if m.strip()] or ["claude-sonnet-5-5"]
+    upstream = os.environ.get("ASSISTANT_UPSTREAM", "").strip() or ASSISTANT_UPSTREAM_DEFAULT
+    return {"models": models, "upstream": upstream,
+            "max_tokens": env_int("ASSISTANT_MAX_TOKENS", 1024, 64, 2048),
+            "max_body": env_int("ASSISTANT_MAX_BODY", 200_000, 10_000, 1_000_000),
+            "session_turns": env_int("ASSISTANT_SESSION_TURNS", 30, 1, 1000),
+            "hourly": env_int("ASSISTANT_HOURLY", 120, 1, 10_000),
+            "timeout": env_int("ASSISTANT_TIMEOUT", 60, 5, 300),
+            "effort": os.environ.get("ASSISTANT_EFFORT", "low").strip(),
+            "web_search": os.environ.get("ASSISTANT_WEB_SEARCH", "").strip() == "1"}
+
+
+def upstream_ok(url):
+    """The key is only ever sent to the official API host over HTTPS, or to a local mock server (tests)."""
+    u = urllib.parse.urlsplit(url)
+    return (u.scheme == "https" and u.hostname == "api.anthropic.com") or (u.scheme == "http" and u.hostname in ("127.0.0.1", "localhost"))
+
+
+def key_configured():
+    return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+
+
+_usage = {"lock": threading.Lock(), "sessions": collections.OrderedDict(), "hour": collections.deque()}
+
+
+def take_turn(session, cfg):
+    """Count one request; returns (ok, error code, turns used). Rolling one-hour window for the global budget."""
+    now = time.time()
+    with _usage["lock"]:
+        hour, sess = _usage["hour"], _usage["sessions"]
+        while hour and now - hour[0] > 3600:
+            hour.popleft()
+        used = sess.get(session, 0)
+        if used >= cfg["session_turns"]:
+            return False, "session_turn_cap", used
+        if len(hour) >= cfg["hourly"]:
+            return False, "hourly_budget", used
+        hour.append(now)
+        sess[session] = used + 1
+        sess.move_to_end(session)
+        while len(sess) > 2000:   # bounded memory
+            sess.popitem(last=False)
+        return True, None, used + 1
+
+
+def check_chat(body, cfg):
+    """Validate one /chat body; returns (error message or None, cleaned body)."""
+    if not isinstance(body, dict):
+        return "body must be a JSON object", None
+    extra = set(body) - ASSISTANT_KEYS
+    if extra:
+        return "field not allowed: " + ", ".join(sorted(extra)), None
+    model = body.get("model") or cfg["models"][0]
+    if model not in cfg["models"]:
+        return "model not allowed", None
+    msgs = body.get("messages")
+    if not isinstance(msgs, list) or not msgs or len(msgs) > 40:
+        return "messages must be a list of 1 to 40 entries", None
+    if any(not isinstance(m, dict) or m.get("role") not in ("user", "assistant") for m in msgs):
+        return "each message needs the role user or assistant", None
+    tools = body.get("tools") or []
+    if not isinstance(tools, list) or len(tools) > 16:
+        return "tools must be a list of at most 16 entries", None
+    for t in tools:
+        if not isinstance(t, dict):
+            return "tool not allowed", None
+        ttype = t.get("type")
+        if ttype in (None, "custom") and t.get("name") in ASSISTANT_TOOLS:
+            continue
+        if isinstance(ttype, str) and ttype.startswith("web_search_") and cfg["web_search"]:
+            continue
+        return "tool not allowed: " + str(t.get("name") or ttype)[:60], None
+    system = body.get("system")
+    if system is not None and not isinstance(system, (str, list)):
+        return "system must be text", None
+    try:
+        mt = int(body.get("max_tokens") or cfg["max_tokens"])
+    except (TypeError, ValueError):
+        return "max_tokens must be a number", None
+    out = {"model": model, "max_tokens": max(1, min(mt, cfg["max_tokens"])), "messages": msgs}
+    if system:
+        out["system"] = system
+    if tools:
+        out["tools"] = tools
+    if cfg["effort"] in ("low", "medium", "high"):
+        out["output_config"] = {"effort": cfg["effort"]}
+    return None, out
+
+
+def forward_chat(payload, cfg):
+    """One upstream call. Returns (status, bytes). Upstream errors are passed on as they are (they never contain the key)."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    req = urllib.request.Request(cfg["upstream"], data=json.dumps(payload).encode("utf-8"), method="POST",
+                                 headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json",
+                                          "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=cfg["timeout"]) as r:
+            status, data = r.status, r.read(4 * 1024 * 1024)
+    except urllib.error.HTTPError as e:
+        status = e.code
+        try:
+            data = e.read(256 * 1024)
+            json.loads(data)
+        except Exception:
+            data = json.dumps({"error": "upstream_error", "status": e.code}).encode()
+    except Exception as e:   # timeout, DNS, refused: the type only (no request content)
+        status = 504 if "timed out" in str(e).lower() else 502
+        data = json.dumps({"error": "upstream_unreachable", "detail": type(e).__name__}).encode()
+    if key and key.encode() in data:   # belt and braces: the key is never sent back
+        data = data.replace(key.encode(), b"[removed]")
+    return status, data
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "live-proxy/1.0"
 
-    def _send(self, code, obj):
-        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    def _send(self, code, obj, origin="*", extra=None):
+        body = obj if isinstance(obj, bytes) else json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", origin)
+        if origin != "*":
+            self.send_header("Vary", "Origin")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _chat_origin(self):
+        """/chat answers only pages of this computer: file:// (Origin "null"), http://localhost or 127.0.0.1. None = refused."""
+        o = self.headers.get("Origin")
+        if o is None:
+            return "null"   # not a browser (a local script): no CORS needed
+        return o if ALLOWED_ORIGIN.match(o) else None
+
+    def _chat(self):
+        origin = self._chat_origin()
+        if origin is None:
+            return self._send(403, {"error": "forbidden_origin"})
+        cfg = assistant_cfg()
+        if not key_configured():
+            return self._send(503, {"error": "assistant_not_configured",
+                                    "message": "Assistant offline: start live/live_proxy.py with ANTHROPIC_API_KEY set"}, origin)
+        if not upstream_ok(cfg["upstream"]):
+            return self._send(500, {"error": "upstream_not_allowed"}, origin)
+        if "json" not in (self.headers.get("Content-Type") or ""):
+            return self._send(415, {"error": "content_type_must_be_json"}, origin)
+        try:
+            n = int(self.headers.get("Content-Length") or "-1")
+        except ValueError:
+            n = -1
+        if n < 0:
+            return self._send(411, {"error": "content_length_required"}, origin)
+        if n > cfg["max_body"]:
+            if n <= 5 * 1024 * 1024:   # drain (and discard) so the client can read the answer
+                left = n
+                while left > 0:
+                    chunk = self.rfile.read(min(left, 65536))
+                    if not chunk:
+                        break
+                    left -= len(chunk)
+            self.close_connection = True
+            return self._send(413, {"error": "body_too_large", "max_bytes": cfg["max_body"]}, origin)
+        session = self.headers.get("X-Session") or ""
+        if not SESSION_RE.match(session):
+            return self._send(400, {"error": "bad_session_header"}, origin)
+        try:
+            body = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return self._send(400, {"error": "invalid_json"}, origin)
+        err, payload = check_chat(body, cfg)
+        if err:
+            return self._send(400, {"error": "invalid_request", "message": err}, origin)
+        ok, code, used = take_turn(session, cfg)
+        info = {"X-Assistant-Turns": str(used), "X-Assistant-Cap": str(cfg["session_turns"]),
+                "Access-Control-Expose-Headers": "X-Assistant-Turns, X-Assistant-Cap"}
+        if not ok:
+            return self._send(429, {"error": code, "turns": used, "cap": cfg["session_turns"], "hourly": cfg["hourly"]}, origin, info)
+        status, data = forward_chat(payload, cfg)
+        self._send(status, data, origin, info)
 
     def _host_ok(self):
         # refuse requests whose Host header is not this machine (protects against DNS rebinding)
@@ -297,6 +498,22 @@ class Handler(BaseHTTPRequestHandler):
         return host in ("127.0.0.1", "localhost")
 
     def do_OPTIONS(self):
+        if urllib.parse.urlsplit(self.path).path.strip("/") == "chat":   # preflight of the assistant: same origins as POST /chat
+            origin = self._chat_origin()
+            if origin is None or not self._host_ok():
+                self.send_response(403)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Session")
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+            self.send_header("Access-Control-Max-Age", "600")
+            self.end_headers()
+            return
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
@@ -311,11 +528,19 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("", "health"):
             return self._send(200, {"ok": True, "endpoints": ["/" + k for k in FETCHERS],
                                     "cache_seconds": {k: v["ttl"] for k, v in SOURCES.items()}})
+        if path == "assistant/health":   # says only whether a key is set, never the key or any part of it
+            cfg = assistant_cfg()
+            return self._send(200, {"configured": key_configured(), "model": cfg["models"][0], "web_search": cfg["web_search"],
+                                    "max_tokens": cfg["max_tokens"], "session_turns": cfg["session_turns"], "hourly": cfg["hourly"]})
         if path not in FETCHERS:
             return self._send(404, {"error": "unknown endpoint"})
         self._send(*get(path))
 
     def do_POST(self):
+        if not self._host_ok():
+            return self._send(403, {"error": "forbidden host"})
+        if urllib.parse.urlsplit(self.path).path.strip("/") == "chat":
+            return self._chat()
         self._send(405, {"error": "GET only"})
 
     def log_message(self, fmt, *args):
@@ -328,6 +553,7 @@ def main():
     a = ap.parse_args()
     srv = ThreadingHTTPServer((HOST, a.port), Handler)
     print(f"live proxy on http://{HOST}:{a.port}  (endpoints: /rws /nrw /limburg /health; Ctrl+C to stop)")
+    print(f"assistant: POST /chat, key {'found' if key_configured() else 'NOT set (the assistant shows offline)'}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -1,7 +1,7 @@
 """Build app/index.html from the local challenge outputs (stdlib only).
 
 Parameters (the team's interpretation choices): config.json. Resident actions and their sources: src/actions.json.
-Inputs: data/<kind>/ (made by the pipeline/ scripts), src/app_template.html, src/js/*.js, live/stations.json.
+Inputs: data/<kind>/ (made by the pipeline/ scripts), src/app_template.html, src/js/*.js, live/stations.json, live/alert_thresholds.json.
 Run:   py -3.13 src/build_app.py      (from any folder)
 Serve: py -3.13 -m http.server 8000 --directory app   ->  http://localhost:8000
 """
@@ -183,7 +183,16 @@ def main():
     # live water levels tab: js/app_live.js with the station catalogue live/stations.json embedded (before app_tabs.js, which calls route() at its end)
     js = HERE / "js"
     live_js = (js / "app_live.js").read_text(encoding="utf-8").replace("/*LIVE_STATIONS*/[]", (ROOT / "live" / "stations.json").read_text(encoding="utf-8").replace("</", "<\\/"))
-    html = html.replace("/*TABS_JS*/", (js / "app_route.js").read_text(encoding="utf-8") + "\n" + live_js + "\n" + (js / "app_tabs.js").read_text(encoding="utf-8"))
+    # alerts: js/app_alerts.js with the team's draft thresholds live/alert_thresholds.json embedded (after app_live.js, whose functions it uses)
+    alert_th = json.loads((ROOT / "live" / "alert_thresholds.json").read_text(encoding="utf-8"))
+    assert isinstance(alert_th.get("entries"), list), "live/alert_thresholds.json needs an 'entries' list"
+    alerts_js = (js / "app_alerts.js").read_text(encoding="utf-8")
+    assert "/*ALERT_THRESHOLDS*/{" in alerts_js
+    alerts_js = re.sub(r"/\*ALERT_THRESHOLDS\*/\{[^\n]*?\};", lambda m: "/*ALERT_THRESHOLDS*/" + json.dumps({"entries": alert_th["entries"]}, ensure_ascii=False).replace("</", "<\\/") + ";", alerts_js, count=1)
+    html = html.replace("/*TABS_JS*/", (js / "app_route.js").read_text(encoding="utf-8") + "\n" + live_js + "\n" + alerts_js + "\n" + (js / "app_tabs.js").read_text(encoding="utf-8"))
+    # assistant: js/app_assistant.js in its own script block after the tabs (an error there cannot stop the tabs); it reads D in the browser, calls only live_proxy.py
+    assert "/*ASSISTANT_JS*/" in html, "src/app_template.html needs the /*ASSISTANT_JS*/ placeholder"
+    html = html.replace("/*ASSISTANT_JS*/", (js / "app_assistant.js").read_text(encoding="utf-8").replace("</script", "<\\/script"))
     html = html.replace("/*DATA*/null", json.dumps(data, ensure_ascii=False))
     (OUT / "index.html").write_text(html, encoding="utf-8")
     for cc, c in countries.items():
@@ -191,6 +200,7 @@ def main():
         tiers = Counter(f["properties"]["tier"] for f in c["lau"]["features"]) if c and "lau" in c else {}
         print(f"{cc}: {'loaded' if c else 'no outputs found'}, {n} buildings, communes by tier {dict(sorted(tiers.items()))}")
     print("thresholds:", {k: (round(v, 1) if isinstance(v, float) else v) for k, v in th.items()})
+    print(f"alert thresholds (team drafts, live/alert_thresholds.json): {len(alert_th['entries'])} entries")
     print(f"wrote {OUT / 'index.html'}")
 
 

@@ -144,7 +144,8 @@ const km1 = m => m < 1000 ? `${fmt(Math.round(m / 10) * 10)} m` : `${fmt(m / 100
 const rOut = html => { document.getElementById("routeOut").innerHTML = html; };
 function drawRoutes(g, results) {
   routeGroup.clearLayers();
-  const link = (a, b, wet) => L.polyline([a, b], { color: wet ? R_COL.obs : "#495057", weight: wet ? 3 : 2, dashArray: "2 6", interactive: false }).addTo(routeGroup);   // pin and destination are snapped to the road network: show the short gap
+  const link = (a, b, wet) => (wet ? L.polyline([a, b], { color: R_COL.obs, weight: 3, dashArray: "2 6", interactive: false })
+    : themed(L.polyline([a, b], { color: "#495057", weight: 2, dashArray: "2 6", interactive: false }), t => ({ color: t === "dark" ? "#c3cad3" : "#495057" }))).addTo(routeGroup);   // pin and destination are snapped to the road network: show the short gap
   const pin = rState.pin;
   results.forEach((r, i) => {
     if (pin) link([pin.lat, pin.lon], [g.lat[r.start] / 1e5, g.lon[r.start] / 1e5], r.linkWet);
@@ -163,16 +164,16 @@ function showResults(g, cc, snapInfo, results, mode, kind, notes) {
   const label = kind === "medical" ? "hospital or clinic" : "shelter or reception place";
   const items = results.map((r, i) => {
     const d = g.dest[r.di], s = r.stats, water = s.obs + s.r100 + s.r500;
-    const wet = water === 0 ? `<span style="color:#2f9e44"><b>No water from our data on this route.</b></span>`
-      : `<span style="color:#c92a2a"><b>Still crosses water from our data:</b></span> ${s.obs ? `${km1(s.obs)} of the 2021 flood` : ""}${s.obs && (s.r100 || s.r500) ? ", " : ""}${s.r100 ? `${km1(s.r100)} of the modelled 100-year zone` : ""}${s.r100 && s.r500 ? ", " : ""}${s.r500 ? `${km1(s.r500)} of the 500-year zone` : ""}. It is the least-wet route we found.`;
-    return `<li style="margin:10px 0"><b>${i + 1}. ${esc(d.n || "(no name in OpenStreetMap)")}</b> <span class="muted">${esc(SINGULAR[d.t] || d.t)}</span><br>
-      ${mins(s.sec)} ${mode === "foot" ? "on foot" : "by car"} &middot; ${km1(s.len)}<br>${wet}
-      ${d.f ? `<br><span class="muted">This place is inside the flood data (${d.f & 1 ? "2021 flood" : d.f & 2 ? "modelled 100-year zone" : "modelled 500-year zone"}): less suitable.</span>` : ""}</li>`;
+    const wet = water === 0 ? `<span class="st st-dry">${svg("check", 14)}<span><b>No water from our data on this route.</b></span></span>`
+      : `<span class="st st-wet">${svg("wave", 14)}<span><b>Still crosses water from our data:</b> ${s.obs ? `${km1(s.obs)} of the 2021 flood` : ""}${s.obs && (s.r100 || s.r500) ? ", " : ""}${s.r100 ? `${km1(s.r100)} of the modelled 100-year zone` : ""}${s.r100 && s.r500 ? ", " : ""}${s.r500 ? `${km1(s.r500)} of the 500-year zone` : ""}. It is the least-wet route we found.</span></span>`;
+    return `<li class="rt-card${i === 0 ? " first" : ""}"><div class="rt-head"><span class="rt-n">${i + 1}</span><b>${esc(d.n || "(no name in OpenStreetMap)")}</b> <span class="muted">${esc(SINGULAR[d.t] || d.t)}</span></div>
+      <div class="rt-big"><b>${mins(s.sec)}</b><span class="muted">${mode === "foot" ? "on foot" : "by car"} &middot;</span><b>${km1(s.len)}</b></div>${wet}
+      ${d.f ? `<div class="muted" style="margin-top:6px">This place is inside the flood data (${d.f & 1 ? "2021 flood" : d.f & 2 ? "modelled 100-year zone" : "modelled 500-year zone"}): less suitable.</div>` : ""}</li>`;
   }).join("");
   const heading = kind === "medical" ? (results.length === 1 ? "hospital or clinic" : "hospitals and clinics") : (results.length === 1 ? "shelter or reception place" : "shelters and reception places");
-  rOut(`${notes.join("")}<h3>Nearest ${heading}, by travel time</h3>${items ? `<ol style="padding-left:20px;margin:0">${items}</ol>` : `<p class="muted">No ${label} reachable in the covered area. Try the other option, or look at Find a region.</p>`}
+  rOut(`${notes.join("")}<h3>Nearest ${heading}, by travel time</h3>${items ? `<ol class="rt-list">${items}</ol>` : `<p class="muted">No ${label} reachable in the covered area. Try the other option, or look at Find a region.</p>`}
     <p class="muted" style="font-size:13px">Starting road point chosen to avoid the flood outline (${fmt(snapInfo.meters, 0)} m from the pin). Times are planning values (${mode === "foot" ? "4.8 km/h" : "typical speeds by road class, no traffic"}), without stops or obstacles.
-    Capacity and opening are unknown: ask the commune. Routes are drawn <span style="color:${R_COL.dry}"><b>blue</b></span> when outside the water data, <span style="color:${R_COL.obs}"><b>red</b></span> inside the 2021 flood, <span style="color:${R_COL.r100}"><b>orange</b></span> inside the modelled 100-year zone, <span style="color:${R_COL.r500}"><b>yellow</b></span> in the 500-year zone.</p>`);
+    Capacity and opening are unknown: ask the commune. Routes are drawn <span class="sw" style="background:${R_COL.dry}"></span><b>blue</b> when outside the water data, <span class="sw" style="background:${R_COL.obs}"></span><b>red</b> inside the 2021 flood, <span class="sw" style="background:${R_COL.r100}"></span><b>orange</b> inside the modelled 100-year zone, <span class="sw" style="background:${R_COL.r500}"></span><b>yellow</b> in the 500-year zone.</p>`);
 }
 async function placePin(lat, lon) {
   rState.pin = { lat, lon };
@@ -242,7 +243,7 @@ function initRoute() {
     mRoute = newMap("mapRoute", bounds); routeGroup = L.layerGroup().addTo(mRoute);
     keys.forEach(cc => {   // the observed flood and the outline of the area where routes are planned
       floodLayer(cc).addTo(mRoute);
-      L.geoJSON({ type: "Feature", geometry: RT[cc].meta.cover }, { style: { color: "#495057", weight: 1.5, dashArray: "5 5", fill: false }, interactive: false }).addTo(mRoute);
+      themed(L.geoJSON({ type: "Feature", geometry: RT[cc].meta.cover }, { style: { color: "#495057", weight: 1.5, dashArray: "5 5", fill: false }, interactive: false }), t => ({ color: t === "dark" ? "#aab3bf" : "#495057" })).addTo(mRoute);
     });
     mRoute.on("click", e => placePin(e.latlng.lat, e.latlng.lng));
     document.getElementById("rGeo").addEventListener("click", () => {
