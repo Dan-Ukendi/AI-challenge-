@@ -67,13 +67,46 @@ function snap(g, lat, lon, mode, roots) {   // nearest road point (in a part of 
   }
   return null;
 }
+// road points within `maxM` metres of the pin that a trip can start from (in a part of the network that reaches a destination): the `limit` nearest,
+// plus the nearest few in each of 24 directions, so that a dry start on the far side of a flooded patch is tried as well
+function candidates(g, lat, lon, mode, roots, maxM, limit) {
+  const cx = Math.floor(lon / g.cell), cy = Math.floor(lat / g.cell), out = [], cosl = Math.cos(lat * Math.PI / 180), R = Math.ceil(maxM / 111000 / g.cell) + 1;
+  for (let dx = -R; dx <= R; dx++) for (let dy = -R; dy <= R; dy++) {
+    const l = g.grid.get((cx + dx) + "," + (cy + dy)); if (!l) continue;
+    for (const i of l) { if (roots && !roots.has(g.comp[mode][i])) continue;
+      const ex = (g.lon[i] / 1e5 - lon) * cosl * 111000, ny = (g.lat[i] / 1e5 - lat) * 111000, m = Math.hypot(ex, ny); if (m > maxM) continue;
+      let ok = false; for (let k = g.start[i]; k < g.start[i + 1]; k++) if (arcOk(g, g.arcs[k], mode)) { ok = true; break; }
+      if (ok) out.push({ node: i, meters: m, sector: Math.floor((Math.atan2(ex, ny) + Math.PI) / (2 * Math.PI) * 24) % 24 }); }
+  }
+  out.sort((a, b) => a.meters - b.meters);
+  const keep = new Set(out.slice(0, limit)), per = new Map();
+  out.forEach(c => { const n = per.get(c.sector) || 0; if (n < 6) { per.set(c.sector, n + 1); keep.add(c); } });
+  return out.filter(c => keep.has(c));
+}
+// the 2021 flood outline of a country, one entry per polygon with its bounding box
+const floodIdx = {};
+function floodPolys(cc) {
+  return floodIdx[cc] || (floodIdx[cc] = (g => (g.type === "Polygon" ? [g.coordinates] : g.coordinates).map(poly => ({ bb: bboxOf({ type: "Polygon", coordinates: [poly[0]] }), poly })))(D.countries[cc].water.flood.geometry));
+}
+// the polygons within `deg` degrees of a point: tested again and again for one pin, so the short list is made once
+const floodNear = (cc, lat, lon, deg) => floodPolys(cc).filter(({ bb }) => lon >= bb[0] - deg && lon <= bb[2] + deg && lat >= bb[1] - deg && lat <= bb[3] + deg);
+const inList = (list, lon, lat) => list.some(({ bb, poly }) => lon >= bb[0] && lon <= bb[2] && lat >= bb[1] && lat <= bb[3] && inRing([lon, lat], poly[0]) && !poly.slice(1).some(h => inRing([lon, lat], h)));
+const inFlood = (cc, lon, lat) => inList(floodNear(cc, lat, lon, 0), lon, lat);
+// share of the straight pin-to-road line inside the flood outline (0 to 1), a point every ~15 m, and counted if a point ~20 m to either side is inside too
+function wetShare(list, lat, lon, nlat, nlon) {
+  const m = Math.hypot((nlon - lon) * Math.cos(lat * Math.PI / 180), nlat - lat) * 111000, N = Math.min(120, Math.max(8, Math.ceil(m / 15))), e = 0.0002;
+  let w = 0;
+  for (let s = 0; s <= N; s++) { const x = lon + (nlon - lon) * s / N, y = lat + (nlat - lat) * s / N, edge = s * m / N < 25 || (N - s) * m / N < 25;   // the margin is not applied at the two ends: a pin or a road just beside the outline is not "in" it
+    if (inList(list, x, y) || (!edge && (inList(list, x + e, y) || inList(list, x - e, y) || inList(list, x, y + e) || inList(list, x, y - e)))) w++; }
+  return w / (N + 1);
+}
 function search(g, src, mode, targets, isGood, wantGood) {
   const n = g.n, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1);
   const hd = [], hn = [];   // binary heap of (cost, node)
   const push = (d, v) => { let i = hd.length; hd.push(d); hn.push(v); while (i > 0) { const p = (i - 1) >> 1; if (hd[p] <= d) break; hd[i] = hd[p]; hn[i] = hn[p]; i = p; } hd[i] = d; hn[i] = v; };
   const pop = () => { const d0 = hd[0], v0 = hn[0], d = hd.pop(), v = hn.pop(); const L = hd.length;
     if (L) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= L) break; if (c + 1 < L && hd[c + 1] < hd[c]) c++; if (hd[c] >= d) break; hd[i] = hd[c]; hn[i] = hn[c]; i = c; } hd[i] = d; hn[i] = v; } return [d0, v0]; };
-  dist[src] = 0; push(0, src);
+  (Array.isArray(src) ? src : [{ node: src, d: 0 }]).forEach(s => { if (s.d < dist[s.node]) { dist[s.node] = s.d; push(s.d, s.node); } });   // one start, or several candidate starts each with its own cost
   const found = []; let good = 0;
   while (hd.length) {
     const [d, u] = pop(); if (d > dist[u]) continue;
@@ -109,12 +142,12 @@ const km1 = m => m < 1000 ? `${fmt(Math.round(m / 10) * 10)} m` : `${fmt(m / 100
 
 // ---------- the tab ----------
 const rOut = html => { document.getElementById("routeOut").innerHTML = html; };
-function drawRoutes(g, results, startNode) {
+function drawRoutes(g, results) {
   routeGroup.clearLayers();
-  const link = (a, b) => L.polyline([a, b], { color: "#495057", weight: 2, dashArray: "2 6", interactive: false }).addTo(routeGroup);   // pin and destination are snapped to the road network: show the short gap
+  const link = (a, b, wet) => L.polyline([a, b], { color: wet ? R_COL.obs : "#495057", weight: wet ? 3 : 2, dashArray: "2 6", interactive: false }).addTo(routeGroup);   // pin and destination are snapped to the road network: show the short gap
   const pin = rState.pin;
-  if (pin) link([pin.lat, pin.lon], [g.lat[startNode] / 1e5, g.lon[startNode] / 1e5]);
   results.forEach((r, i) => {
+    if (pin) link([pin.lat, pin.lon], [g.lat[r.start] / 1e5, g.lon[r.start] / 1e5], r.linkWet);
     if (r.arcs.length) { const pts = arcPoints(g, r.arcs[r.arcs.length - 1]), end = pts[pts.length - 1], d0 = g.dest[r.di]; link(end, [d0.lat, d0.lon]); }
     let seg = [], kind = null;
     const flush = () => { if (seg.length > 1) L.polyline(seg, { color: R_COL[kind], weight: i === 0 ? 6 : 3, opacity: i === 0 ? 0.95 : 0.6, dashArray: i === 0 ? null : "6 6" }).addTo(routeGroup); };
@@ -138,7 +171,7 @@ function showResults(g, cc, snapInfo, results, mode, kind, notes) {
   }).join("");
   const heading = kind === "medical" ? (results.length === 1 ? "hospital or clinic" : "hospitals and clinics") : (results.length === 1 ? "shelter or reception place" : "shelters and reception places");
   rOut(`${notes.join("")}<h3>Nearest ${heading}, by travel time</h3>${items ? `<ol style="padding-left:20px;margin:0">${items}</ol>` : `<p class="muted">No ${label} reachable in the covered area. Try the other option, or look at Find a region.</p>`}
-    <p class="muted" style="font-size:13px">Pin snapped to the nearest road point (${fmt(snapInfo.meters, 0)} m away). Times are planning values (${mode === "foot" ? "4.8 km/h" : "typical speeds by road class, no traffic"}), without stops or obstacles.
+    <p class="muted" style="font-size:13px">Starting road point chosen to avoid the flood outline (${fmt(snapInfo.meters, 0)} m from the pin). Times are planning values (${mode === "foot" ? "4.8 km/h" : "typical speeds by road class, no traffic"}), without stops or obstacles.
     Capacity and opening are unknown: ask the commune. Routes are drawn <span style="color:${R_COL.dry}"><b>blue</b></span> when outside the water data, <span style="color:${R_COL.obs}"><b>red</b></span> inside the 2021 flood, <span style="color:${R_COL.r100}"><b>orange</b></span> inside the modelled 100-year zone, <span style="color:${R_COL.r500}"><b>yellow</b></span> in the 500-year zone.</p>`);
 }
 async function placePin(lat, lon) {
@@ -167,23 +200,36 @@ async function computeRoute() {
   const targets = new Map();
   g.dest.forEach((d, i) => { if (kinds.includes(d.k)) { let l = targets.get(d.node); if (!l) targets.set(d.node, l = []); l.push(i); } });
   const roots = new Set([...targets.keys()].map(nd => g.comp[mode][nd]));   // only start from a part of the network that reaches a destination
-  const info = snap(g, lat, lon, mode, roots);
-  if (!info) { rOut(`<div class="note">No ${mode === "foot" ? "walkable" : "drivable"} road near this point leads to a ${kind === "medical" ? "hospital or clinic" : "shelter"}. Move the pin onto a main road, or try the other way of travelling.</div>`); return; }
-  if (info.meters > 1500) { rOut(`<div class="note">The nearest road that leads anywhere is ${fmt(info.meters / 1000, 1)} km from this point. Move the pin closer to a road.</div>`); return; }
+  const nearest = snap(g, lat, lon, mode, roots);   // nearest road point, whatever the water
+  if (!nearest) { rOut(`<div class="note">No ${mode === "foot" ? "walkable" : "drivable"} road near this point leads to a ${kind === "medical" ? "hospital or clinic" : "shelter"}. Move the pin onto a main road, or try the other way of travelling.</div>`); return; }
+  if (nearest.meters > 1500) { rOut(`<div class="note">The nearest road that leads anywhere is ${fmt(nearest.meters / 1000, 1)} km from this point. Move the pin closer to a road.</div>`); return; }
+  // Where to start: not simply the nearest road point. Every road point within reach is a possible start; the straight line from the pin to it costs
+  // walking time, multiplied by the observed-flood penalty for the part inside the 2021 flood outline. One search from all of them finds the cheapest whole trip.
+  const all = candidates(g, lat, lon, mode, roots, Math.max(1500, nearest.meters * 1.5), 60), nearFlood = floodNear(cc, lat, lon, 0.03);
+  all.forEach(c => { c.wet = wetShare(nearFlood, lat, lon, g.lat[c.node] / 1e5, g.lon[c.node] / 1e5); c.d = c.meters / 1.33 * (1 + (RP.route_pen_observed - 1) * c.wet); });
+  const dry = all.filter(c => c.wet === 0), cand = dry.length ? dry : all;   // a start whose line to the pin touches the flood is used only when there is no other start
   const good = di => g.dest[di].f === 0;                            // outside all the water data
-  const { found, prev } = search(g, info.node, mode, targets, good, 3);
+  const { found, prev } = search(g, cand.map(c => ({ node: c.node, d: c.d })), mode, targets, good, 3);
   const pick = found.filter(x => good(x.di)).slice(0, 3);
   if (pick.length < 3) found.filter(x => !good(x.di)).slice(0, 3 - pick.length).forEach(x => pick.push(x));
-  const results = pick.map(x => { const arcs = pathOf(g, prev, x.node); return { di: x.di, arcs, stats: describe(g, arcs, mode) }; });
-  drawRoutes(g, results, info.node);
+  const byNode = new Map(all.map(c => [c.node, c]));
+  const results = pick.map(x => { const arcs = pathOf(g, prev, x.node), start = arcs.length ? ((arcs[0] & 1) ? g.b[arcs[0] >> 1] : g.a[arcs[0] >> 1]) : x.node, c = byNode.get(start);
+    return { di: x.di, arcs, start, linkWet: c ? c.wet > 0 : false, linkM: c ? c.meters : 0, linkWetM: c ? c.meters * c.wet : 0, stats: describe(g, arcs, mode) }; });
+  rState.results = results;
+  const first = results[0], info = { node: first ? first.start : nearest.node, meters: first ? first.linkM : nearest.meters };
+  drawRoutes(g, results);
+  const fg = D.countries[cc].water.flood.geometry;
+  const nearWet = byNode.get(nearest.node), moved = first && first.start !== nearest.node && nearWet && nearWet.wet > 0;
   // where the pin stands against the water data
-  const here = inGeom([lon, lat], D.countries[cc].water.flood.geometry);
+  const here = inFlood(cc, lon, lat);
   let near = 0; for (let k = g.start[info.node]; k < g.start[info.node + 1]; k++) near |= g.f[g.arcs[k] >> 1];
   const notes = [];
   if (here || (near & 16)) notes.push(`<div class="note" style="border-left-color:#c92a2a"><b>Your pin is inside the 2021 flood data.</b> The route leaves it by the way that crosses the least water. In a real flood, follow the instructions of the authorities and ${esc(ALERT[cc])}.</div>`);
   else if (near & 32) notes.push(`<div class="note" style="border-left-color:#f76707">The roads next to your pin are inside the <b>modelled 100-year flood zone</b>.</div>`);
   else if (near & 64) notes.push(`<div class="note" style="border-left-color:#e0a800">The roads next to your pin are inside the <b>modelled 500-year flood zone</b>.</div>`);
   else notes.push(`<p>The roads next to your pin are <b>outside the water data</b> (2021 flood and modelled zones).</p>`);
+  if (first && first.linkWetM >= 10) notes.push(`<div class="note" style="border-left-color:#c92a2a"><b>The first part is not a planned route.</b> From your pin to the road (dotted line, ${km1(info.meters)}), about ${km1(first.linkWetM)} is a straight line across the 2021 flood outline. It cannot be avoided: your pin is inside the flood, or the water lies between the pin and every road within reach. We start from the road point where this part is the shortest. The planned route below starts at that road and avoids the water where it can.</div>`);
+  else if (moved) notes.push(`<div class="note" style="border-left-color:#2f9e44">The nearest road point is inside the flood outline. The route starts instead from a road point ${km1(info.meters)} away that you reach without crossing the flood outline.</div>`);
   showResults(g, cc, info, results, mode, kind, notes);
   if (results.length) { const b = L.latLngBounds([[lat, lon]]); results.forEach(r => r.arcs.forEach(a => arcPoints(g, a).forEach(p => b.extend(p)))); mRoute.fitBounds(b.pad(0.15), { maxZoom: 15 }); }
 }

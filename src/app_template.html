@@ -112,7 +112,7 @@
 </head>
 <body>
 <nav id="nav" aria-label="Sections">
-  <span class="brand">July 2021 floods</span>
+  <span class="brand">Paragon Crisis Portal</span>
   <a href="#overview" data-tab="overview">Overview</a>
   <a href="#map" data-tab="map">Map</a>
   <a href="#region" data-tab="region">Find a region</a>
@@ -255,7 +255,7 @@
 <header>
   <div>
     <h1>Flood Data Explorer</h1>
-    <p>July 2021 floods &middot; Belgium, Germany, Netherlands</p>
+    <p>Paragon Crisis Portal &middot; Belgium, Germany, Netherlands</p>
   </div>
   <div class="tabs">
     <label for="metric" style="align-self:center;color:var(--muted)">Communes (LAU):</label>
@@ -437,7 +437,7 @@ function updateChoro() {
 metricSel.onchange = updateChoro;
 updateChoro();
 
-const layers = {}, water = {}; // water[cc] = { "label": layer } for the layer control
+const layers = {}, water = {}, extent = {}; // water[cc] = { "label": layer } for the layer control; extent[cc] = where to zoom
 CC.forEach(cc => {
   const c = D.countries[cc];
   if (!c) return;
@@ -469,12 +469,19 @@ CC.forEach(cc => {
     (water[cc] ??= {})[`${cc.toUpperCase()} communes (LAU)`] = cu;
   }
   layers[cc] = L.featureGroup();
-  if (c.aoi) L.geoJSON(c.aoi, { style: { color: "#1f6feb", weight: 2, fillOpacity: 0.05 } })
-    .bindTooltip(l => `${l.feature.properties.locality} (${l.feature.properties.emsr_id})`).addTo(layers[cc]);
-  if (c.buildings) L.geoJSON(c.buildings, {
+  if (c.aoi) {  // area of interest of the starter notebook: an optional layer, not drawn by default
+    const aoiL = L.geoJSON(c.aoi, { style: { color: "#1f6feb", weight: 2, fillOpacity: 0.05 } })
+    .bindTooltip(l => `${l.feature.properties.locality} (${l.feature.properties.emsr_id})`);
+    (water[cc] ??= {})[`${cc.toUpperCase()} mapped area outline (AOI)`] = aoiL; extent[cc] = aoiL.getBounds();
+  }
+  if (c.buildings) {  // buildings are a layer to tick in the layer control (off by default: tens of thousands of dots hide the map)
+    const sw = `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${COLORS[cc]};margin-right:4px"></span>`;
+    const bl = (water[cc] ??= {})[`${sw}${cc.toUpperCase()} buildings (GHS-OBAT points)`] = L.geoJSON(c.buildings, {
     pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 4, color: COLORS[cc], weight: 1, fillOpacity: 0.8 }),
     onEachFeature: (f, l) => l.bindPopup(`${cc.toUpperCase()} &middot; ${f.properties.adm1}<br>Building ${f.properties.id.slice(0, 8)}<br>${f.properties.in_flood ? "Inside the observed flood" : `Within ${D.cfg.building_buffer_m} m of the observed flood`}`)
-  }).addTo(layers[cc]);
+  });
+    extent[cc] = extent[cc] ? extent[cc].extend(bl.getBounds()) : bl.getBounds();
+  }
   if (c.osm) {  // one toggleable layer per category; ringed/larger dots = in the water or within the near distance
     const s = c.osm.summary;
     Object.entries(s.categories).forEach(([cat, lab]) => {
@@ -512,6 +519,16 @@ popLegend.onAdd = () => {
   return d;
 };
 popLegend.addTo(map);
+// the legends cover the map: they stay hidden until the "Legends" button is pressed
+const legendBtn = L.control({ position: "bottomleft" });
+legendBtn.onAdd = () => {
+  const b = L.DomUtil.create("button", "chip"); b.type = "button"; b.textContent = "Legends"; b.setAttribute("aria-pressed", "false");
+  L.DomEvent.disableClickPropagation(b);
+  b.onclick = () => { const on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", on); [choro, legend, popLegend].forEach(c => { c.getContainer().style.display = on ? "" : "none"; }); };
+  return b;
+};
+legendBtn.addTo(map);
+[choro, legend, popLegend].forEach(c => { c.getContainer().style.display = "none"; });
 
 let ctl;
 function show(sel) {
@@ -530,8 +547,8 @@ function show(sel) {
   Object.entries(overlays).forEach(([k, l]) => { if (k.includes("OSM:") && map.hasLayer(l)) l.bringToFront(); });
   ctl = L.control.layers(null, overlays, { collapsed: Object.keys(overlays).length > 8 }).addTo(map);  // long list in All view: collapse
   on.forEach(cc => layers[cc].bringToFront());  // keep buildings above the water layers
-  const b = on.map(cc => layers[cc].getBounds()).filter(x => x.isValid());
-  if (b.length) map.fitBounds(b.reduce((a, x) => a.extend(x)).pad(0.1));
+  const b = on.map(cc => extent[cc]).filter(x => x && x.isValid());
+  if (b.length) map.fitBounds(b.reduce((a, x) => a.extend(x), L.latLngBounds(b[0].getSouthWest(), b[0].getNorthEast())).pad(0.1));   // a copy: extend() changes the object it is called on
   renderSide(sel);
 }
 
