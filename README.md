@@ -16,7 +16,6 @@ European AI Challenge 2026 (FARI / JRC). A single-page web tool built on the dat
 | Official flood zones (DE) | 2021 flood vs official flood zones of Rhineland-Palatinate and North Rhine-Westphalia: the "gap" and its exposure per commune and Land. |
 | Live water levels | Current raw levels from official gauges (Wallonia, PEGELONLINE, Rijkswaterstaat, NRW, Waterschap Limburg; Flanders on request). |
 | Alerts (inside Live water levels) | When a gauge crosses a level published by its own source (today NRW only), a strip on every tab says to stay away from nearby islands (level 1) or to consider leaving for a shelter outside the flood data (level 2); browser notifications while the page is open; a simulation mode. Not an official warning. |
-| AI assistant (button on every tab) | Optional chat panel that answers from the app's own data through short tool calls (communes, priority areas, islands, official zones, live levels). Needs the local helper and a key in an environment variable, see `live/ASSISTANT.md`. |
 | Advanced | Commune choropleth (response tier, exposure per 1,000, ...) and the underlying layers. |
 | About | Sources, definitions, cut-offs and what the tool does not show. |
 
@@ -26,8 +25,7 @@ European AI Challenge 2026 (FARI / JRC). A single-page web tool built on the dat
 - **Rebuild it** (Python 3.13, standard library only): `py -3.13 src/build_app.py` (works from any folder). Output: `app/index.html`.
 - **Live water levels:** start the local proxy `py -3.13 live/live_proxy.py` (127.0.0.1:8765, standard library only); without it three of the sources show "source unavailable". Details: `live/README_live.md`.
 - **Theme:** one dark or light theme for the whole app, chosen with the sun/moon button in the top bar and remembered by the browser.
-- **AI assistant:** the same local proxy serves it. The key is read from an environment variable and never reaches the page (`live/ASSISTANT.md`).
-- **Streamlit:** the branch `streamlit-deploy` adds `streamlit_app.py`, `.streamlit/config.toml` and a `static/` copy of `app/`; main file path `streamlit_app.py`. The helper-based features (three live sources, NRW alerts, assistant) are not available there.
+- **Streamlit:** the branch `streamlit-deploy` adds `streamlit_app.py`, `.streamlit/config.toml` and a `static/` copy of `app/`; main file path `streamlit_app.py`. The helper-based features (three live sources, NRW alerts) are not available there.
 - **Re-run the data pipeline:** `pip install -r requirements.txt`, then the scripts below. They read the public challenge bucket `gs://datasets_challenge/working_data` anonymously and only read the windows they need.
 
 ## Pipeline (run order)

@@ -190,9 +190,6 @@ def main():
     assert "/*ALERT_THRESHOLDS*/{" in alerts_js
     alerts_js = re.sub(r"/\*ALERT_THRESHOLDS\*/\{[^\n]*?\};", lambda m: "/*ALERT_THRESHOLDS*/" + json.dumps({"entries": alert_th["entries"]}, ensure_ascii=False).replace("</", "<\\/") + ";", alerts_js, count=1)
     html = html.replace("/*TABS_JS*/", (js / "app_route.js").read_text(encoding="utf-8") + "\n" + live_js + "\n" + alerts_js + "\n" + (js / "app_tabs.js").read_text(encoding="utf-8"))
-    # assistant: js/app_assistant.js in its own script block after the tabs (an error there cannot stop the tabs); it reads D in the browser, calls only live_proxy.py
-    assert "/*ASSISTANT_JS*/" in html, "src/app_template.html needs the /*ASSISTANT_JS*/ placeholder"
-    html = html.replace("/*ASSISTANT_JS*/", (js / "app_assistant.js").read_text(encoding="utf-8").replace("</script", "<\\/script"))
     html = html.replace("/*DATA*/null", json.dumps(data, ensure_ascii=False))
     (OUT / "index.html").write_text(html, encoding="utf-8")
     for cc, c in countries.items():
