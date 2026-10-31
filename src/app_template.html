@@ -498,53 +498,6 @@
     *, *::before, *::after { transition:none !important; animation:none !important; scroll-behavior:auto !important; }
     .lift:hover, .ov-card:hover, .ov-step:hover { transform:none; }
   }
-  /* ==== assistant (js/app_assistant.js): floating button + chat panel, bottom-right, above the map panes, below the top bar ==== */
-  .as-fab { position:fixed; right:18px; bottom:calc(18px + var(--as-lift, 0px)); z-index:1200; display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:8px 16px 8px 12px; border-radius:999px;
-    border:1px solid var(--accent); background:var(--accent); color:var(--on-accent); font:inherit; font-size:14px; font-weight:600; cursor:pointer; box-shadow:var(--shadow-hi); }
-  .as-fab:hover { background:color-mix(in srgb, var(--accent) 88%, var(--text)); }
-  .as-fab:focus-visible, .as-panel :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .as-fab[aria-expanded="true"] { background:var(--card); color:var(--text); border-color:var(--line-strong); }
-  .as-panel { position:fixed; right:18px; bottom:calc(74px + var(--as-lift, 0px)); z-index:1200; width:380px; max-width:calc(100vw - 36px); height:560px;
-    max-height:calc(100vh - var(--chrome, 124px) - 92px - var(--as-lift, 0px)); max-height:calc(100dvh - var(--chrome, 124px) - 92px - var(--as-lift, 0px)); min-height:180px;
-    display:flex; flex-direction:column; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow-hi); overflow:hidden; }
-  .as-panel[hidden] { display:none; }
-  .as-head { flex:none; padding:10px 12px 8px; border-bottom:1px solid var(--line); background:var(--raised); }
-  .as-top { display:flex; align-items:center; gap:8px; }
-  .as-top h2 { margin:0; font-size:15px; flex:1; }
-  .as-count { font-size:12px; color:var(--muted); white-space:nowrap; }
-  .as-x { border:0; background:transparent; color:var(--muted); font:inherit; font-size:20px; line-height:1; width:32px; height:32px; border-radius:8px; cursor:pointer; }
-  .as-x:hover { background:var(--hover); color:var(--text); }
-  .as-disc { margin:6px 0 0; font-size:12px; line-height:1.4; color:var(--banner-fg); background:var(--banner-bg); border:1px solid var(--banner-line, var(--line)); border-radius:8px; padding:5px 8px; }
-  .as-log { flex:1; min-height:0; overflow-y:auto; padding:10px 12px; font-size:13.5px; line-height:1.5; overscroll-behavior:contain; }
-  .as-msg { margin:0 0 10px; overflow-wrap:anywhere; }
-  .as-msg.as-u { margin-left:32px; padding:7px 10px; border-radius:12px 12px 4px 12px; background:var(--accent-soft, var(--sunken)); }
-  .as-msg.as-a { padding:2px 0; }
-  .as-msg.as-e { padding:7px 10px; border-radius:10px; border:1px solid var(--line); border-left:4px solid var(--warn); background:var(--sunken); }
-  .as-msg p { margin:0 0 6px; } .as-msg ul, .as-msg ol { margin:0 0 6px; padding-left:20px; } .as-msg h4 { margin:8px 0 4px; font-size:13.5px; }
-  .as-msg code { font-size:12.5px; padding:0 4px; border-radius:4px; background:var(--sunken); }
-  .as-msg a { color:var(--accent); }
-  .as-msg table { border-collapse:collapse; margin:4px 0 8px; font-size:12.5px; display:block; overflow-x:auto; }
-  .as-msg th, .as-msg td { border:1px solid var(--line); padding:3px 6px; text-align:left; }
-  .as-used { margin:2px 0 0; font-size:11.5px; color:var(--muted); }
-  .as-chart { margin:6px 0 10px; padding:8px; border:1px solid var(--line); border-radius:10px; background:var(--raised); }
-  .as-chart svg { display:block; width:100%; height:auto; }
-  .as-chart .as-bar { fill:var(--accent); } .as-chart text { fill:var(--text); font-size:11px; } .as-chart .as-ct { font-weight:700; font-size:12px; } .as-chart .as-cm { fill:var(--muted); }
-  .as-chips { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 8px; }
-  .as-chips .chip { font-size:12.5px; min-height:30px; text-align:left; margin:0; }
-  .as-busy { color:var(--muted); font-size:12.5px; }
-  .as-off { padding:10px; border-radius:10px; border:1px solid var(--line); border-left:4px solid var(--warn); background:var(--sunken); }
-  .as-form { flex:none; display:flex; gap:8px; align-items:flex-end; padding:8px 12px; border-top:1px solid var(--line); background:var(--raised); }
-  .as-form textarea { flex:1; min-width:0; resize:none; height:40px; max-height:120px; font:inherit; font-size:14px; padding:8px 10px; border-radius:10px; border:1px solid var(--line-strong); background:var(--card); color:var(--text); }
-  .as-form .btn { min-height:40px; } .as-form .btn:disabled, .as-form textarea:disabled { opacity:.5; cursor:not-allowed; }
-  .as-foot > span:last-child { white-space:nowrap; }
-  .as-foot { flex:none; display:flex; gap:8px; justify-content:space-between; align-items:center; padding:0 12px 8px; background:var(--raised); font-size:12px; color:var(--muted); }
-  .as-foot button { border:0; background:transparent; color:var(--accent); font:inherit; font-size:12.5px; cursor:pointer; padding:4px 2px; text-decoration:underline; }
-  .as-foot button:disabled { color:var(--muted); cursor:not-allowed; text-decoration:none; }
-  .split .panel { scroll-padding-bottom:80px; }
-  body.as-on .split .panel { padding-bottom:80px; }
-  /* phones: the panel keeps clear of the map zoom buttons on the left; --as-lift (set by the script) raises both above a map control at the bottom */
-  @media (max-width:600px) { .as-fab { padding:8px 14px 8px 10px; } .as-panel { max-width:calc(100vw - 72px); } }
-  @media print { .as-fab, .as-panel { display:none !important; } }
 </style>
 </head>
 <body>
@@ -1037,9 +990,6 @@ show("all");
 </script>
 <script>
 /*TABS_JS*/
-</script>
-<script>
-/*ASSISTANT_JS*/
 </script>
 </body>
 </html>
